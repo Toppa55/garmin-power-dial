@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
+    <iq:application
+        id="A13A10F2BEEA4E7E8A2B130A11A10A9D"
+        type="datafield"
+        name="@Strings.AppName"
+        entry="AnalogPowerApp"
+        launcherIcon="@Drawables.LauncherIcon"
+        minApiLevel="3.2.0">
+        <iq:products>
+            <iq:product id="edge130plus"/>
+        </iq:products>
+        <iq:permissions/>
+        <iq:languages/>
+        <iq:barrels/>
+    </iq:application>
+</iq:manifest>
