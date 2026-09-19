@@ -1,0 +1,22 @@
+# Connect IQ build products
+/build/
+/bin/
+/gen/
+*.prg
+*.prg.debug.xml
+*.iq
+*.mir
+
+# Private signing keys and credentials
+*.der
+*.pem
+*.key
+.env
+.env.*
+
+# Local editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
