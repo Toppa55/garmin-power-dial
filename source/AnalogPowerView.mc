@@ -1,174 +1,371 @@
+using Toybox.Application;
 using Toybox.Graphics;
 using Toybox.Math;
+using Toybox.Lang;
 using Toybox.WatchUi;
 
 class AnalogPowerView extends WatchUi.DataField {
-    // Easy to change later if you want a different scale.
-    const MAX_POWER = 800;
     const START_ANGLE = 210.0;
     const SWEEP_ANGLE = 240.0;
+    const DEFAULT_FTP = 250;
+    const DEFAULT_RESERVE_KJ = 25;
+    const DEFAULT_RECOVERY_SECONDS = 300;
+    const DEFAULT_RESTING_HR = 60;
+    const DEFAULT_THRESHOLD_HR = 170;
+    const DEFAULT_MAX_HR = 190;
+    const DEFAULT_DECOUPLING = 10;
 
     hidden var _power;
     hidden var _needlePower;
+    hidden var _averagePower;
+    hidden var _heartRate;
+    hidden var _averageHeartRate;
+    hidden var _timerTime;
     hidden var _hasPower;
+    hidden var _ftp;
+    hidden var _fuelBudgetKj;
+    hidden var _reserveJoules;
+    hidden var _lastTimerTime;
+    hidden var _rideMath;
+    hidden var _restingHeartRate;
+    hidden var _thresholdHeartRate;
+    hidden var _maxHeartRate;
+    hidden var _decouplingPercent;
+    hidden var _effortScore;
+    hidden var _feedback;
+    hidden var _remoteCue;
+    hidden var _remoteTargetLow;
+    hidden var _remoteTargetHigh;
+    hidden var _remoteRisk;
+    hidden var _remoteConfidence;
 
     function initialize() {
         DataField.initialize();
         _power = 0;
         _needlePower = 0.0;
+        _averagePower = 0;
+        _heartRate = 0;
+        _averageHeartRate = 0;
+        _timerTime = 0;
         _hasPower = false;
+        _effortScore = 0;
+        _feedback = "PAIR HR";
+        _remoteCue = null;
+        _remoteTargetLow = 0;
+        _remoteTargetHigh = 0;
+        _remoteRisk = "";
+        _remoteConfidence = 0;
+        _lastTimerTime = 0;
+        _rideMath = new RideMath();
+        loadCalibration();
+        _reserveJoules = _fuelBudgetKj * 1000.0;
     }
 
-    // Garmin supplies Activity.Info to a Data Field once per second.
+    function loadCalibration() {
+        var configuredFtp = Application.Properties.getValue("ftpWatts");
+        var configuredFuel = Application.Properties.getValue("fuelBudgetKj");
+        var configuredRestingHr = Application.Properties.getValue("restingHeartRate");
+        var configuredThresholdHr = Application.Properties.getValue("thresholdHeartRate");
+        var configuredMaxHr = Application.Properties.getValue("maxHeartRate");
+        var configuredDecoupling = Application.Properties.getValue("decouplingPercent");
+        _ftp = (configuredFtp != null && configuredFtp > 0) ? configuredFtp : DEFAULT_FTP;
+        // Values above 200 kJ came from the previous total-work fuel model.
+        // Migrate those installs to a realistic hard-effort reserve.
+        _fuelBudgetKj = (configuredFuel != null && configuredFuel > 0 && configuredFuel <= 200) ? configuredFuel : DEFAULT_RESERVE_KJ;
+        _restingHeartRate = (configuredRestingHr != null && configuredRestingHr > 0) ? configuredRestingHr : DEFAULT_RESTING_HR;
+        _thresholdHeartRate = (configuredThresholdHr != null && configuredThresholdHr > _restingHeartRate) ? configuredThresholdHr : DEFAULT_THRESHOLD_HR;
+        _maxHeartRate = (configuredMaxHr != null && configuredMaxHr > _thresholdHeartRate) ? configuredMaxHr : DEFAULT_MAX_HR;
+        _decouplingPercent = (configuredDecoupling != null && configuredDecoupling > 0) ? configuredDecoupling : DEFAULT_DECOUPLING;
+    }
+
     function compute(info) {
+        loadCalibration();
         if (info.currentPower != null) {
             _power = info.currentPower;
-
-            // A little damping makes the dial feel mechanical instead of twitchy.
-            if (!_hasPower) {
-                _needlePower = _power;
-            } else {
-                _needlePower = (_needlePower * 0.58) + (_power * 0.42);
-            }
+            _needlePower = _hasPower
+                ? ((_needlePower * 0.58) + (_power * 0.42))
+                : _power.toFloat();
             _hasPower = true;
         } else {
             _power = 0;
             _needlePower = _needlePower * 0.72;
             _hasPower = false;
         }
+
+        _averagePower = (info.averagePower != null) ? info.averagePower : 0;
+        _heartRate = (info.currentHeartRate != null) ? info.currentHeartRate : 0;
+        _averageHeartRate = (info.averageHeartRate != null) ? info.averageHeartRate : 0;
+        var nextTimer = (info.timerTime != null) ? info.timerTime : 0;
+        if (nextTimer < _lastTimerTime) {
+            _reserveJoules = _fuelBudgetKj * 1000.0;
+        }
+        var dt = (nextTimer - _lastTimerTime) / 1000.0;
+        _reserveJoules = _rideMath.reserve(_reserveJoules, _power, _ftp,
+                                          _fuelBudgetKj * 1000, DEFAULT_RECOVERY_SECONDS, dt);
+        _lastTimerTime = nextTimer;
+        _timerTime = nextTimer;
+        updateEffortFeedback();
+    }
+
+    function receiveCoach(data) {
+        if (!(data instanceof Lang.Dictionary)) { return; }
+        if (data.hasKey("cue")) { _remoteCue = data["cue"].toString(); }
+        if (data.hasKey("targetLow")) { _remoteTargetLow = data["targetLow"].toNumber(); }
+        if (data.hasKey("targetHigh")) { _remoteTargetHigh = data["targetHigh"].toNumber(); }
+        if (data.hasKey("risk")) { _remoteRisk = data["risk"].toString(); }
+        if (data.hasKey("confidence")) { _remoteConfidence = data["confidence"].toNumber(); }
+        if (data.hasKey("ftp") && data["ftp"].toNumber() > 0) {
+            _ftp = data["ftp"].toNumber();
+            Application.Properties.setValue("ftpWatts", _ftp);
+        }
+        if (data.hasKey("reserveKj") && data["reserveKj"].toNumber() > 0) {
+            var oldCapacity = _fuelBudgetKj * 1000.0;
+            var oldFraction = (oldCapacity > 0) ? (_reserveJoules / oldCapacity) : 1.0;
+            _fuelBudgetKj = data["reserveKj"].toNumber();
+            _reserveJoules = _fuelBudgetKj * 1000.0 * oldFraction;
+            Application.Properties.setValue("fuelBudgetKj", _fuelBudgetKj);
+        }
+        WatchUi.requestUpdate();
+    }
+
+    function updateEffortFeedback() {
+        var powerLoad = (_ftp > 0) ? ((_power.toFloat() / _ftp.toFloat()) * 100.0) : 0.0;
+        var hrRange = _thresholdHeartRate - _restingHeartRate;
+        var heartLoad = 0.0;
+        if (_heartRate > 0 && hrRange > 0) {
+            heartLoad = ((_heartRate - _restingHeartRate).toFloat() / hrRange.toFloat()) * 100.0;
+        }
+        if (powerLoad < 0) { powerLoad = 0; }
+        if (powerLoad > 150) { powerLoad = 150; }
+        if (heartLoad < 0) { heartLoad = 0; }
+        if (heartLoad > 150) { heartLoad = 150; }
+        _effortScore = Math.floor((powerLoad * 0.6) + (heartLoad * 0.4));
+        if (_effortScore > 100) { _effortScore = 100; }
+
+        if (!_hasPower) {
+            _feedback = "NO POWER";
+            return;
+        }
+        if (_heartRate <= 0) {
+            _feedback = "PAIR HR";
+            return;
+        }
+        if (fuelPercent() <= 15) {
+            _feedback = "FUEL LOW";
+            return;
+        }
+        if (_power > _ftp && _heartRate >= _thresholdHeartRate) {
+            _feedback = "EASE OFF";
+            return;
+        }
+
+        var cappedPower = powerLoad;
+        if (cappedPower > 100) { cappedPower = 100; }
+        var expectedHr = _restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * cappedPower) / 100.0);
+        var driftLimit = expectedHr * (1.0 + (_decouplingPercent.toFloat() / 100.0));
+        if (_timerTime > 1200000 && powerLoad > 50 && _heartRate > driftLimit) {
+            _feedback = "HR DRIFT";
+        } else if (_effortScore >= 88) {
+            _feedback = "HARD";
+        } else if (powerLoad >= 78 && powerLoad <= 102 && heartLoad <= 105) {
+            _feedback = "HOLD";
+        } else if (_effortScore < 55 && fuelPercent() > 35) {
+            _feedback = "PUSH";
+        } else {
+            _feedback = "STEADY";
+        }
     }
 
     function onUpdate(dc) {
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.clear();
+        if (dc has :setAntiAlias) { dc.setAntiAlias(true); }
 
-        if (dc has :setAntiAlias) {
-            dc.setAntiAlias(true);
-        }
-
-        // Full analogue gauge when it has enough vertical room.
         if (dc.getHeight() >= 220) {
-            drawFullGauge(dc);
+            drawDashboard(dc);
         } else {
             drawCompactGauge(dc);
         }
     }
 
-    function drawFullGauge(dc) {
+    function drawDashboard(dc) {
         var w = dc.getWidth();
         var h = dc.getHeight();
         var cx = w / 2;
-        var cy = (h * 45) / 100;
-        var r = (w * 43) / 100;
+        var cy = (h * 39) / 100;
+        var r = (w * 41) / 100;
 
-        // Outer bezel and inner dial ring.
+        drawCheckEngine(dc, cx, 5);
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.setPenWidth(3);
         dc.drawArc(cx, cy, r, Graphics.ARC_CLOCKWISE, 210, 330);
         dc.setPenWidth(1);
         dc.drawArc(cx, cy, r - 7, Graphics.ARC_CLOCKWISE, 210, 330);
-
         drawTicksAndLabels(dc, cx, cy, r);
         drawNeedle(dc, cx, cy, r);
 
-        // Pivot: white center inside black hub = tiny mechanical detail that reads well in 1-bit.
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.fillCircle(cx, cy, 8);
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_WHITE);
         dc.fillCircle(cx, cy, 3);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
 
-        // Big digital readout beneath the dial.
-        var wattsY = (h * 65) / 100;
         var powerText = _hasPower ? _power.format("%d") : "--";
-        dc.drawText(cx, wattsY, Graphics.FONT_NUMBER_HOT, powerText, Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(cx, wattsY + dc.getFontHeight(Graphics.FONT_NUMBER_HOT) - 2,
-                    Graphics.FONT_SMALL, "WATTS", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(cx, cy + 17, Graphics.FONT_NUMBER_HOT,
+                    powerText, Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(cx, cy + 17 + dc.getFontHeight(Graphics.FONT_NUMBER_HOT) - 2,
+                    Graphics.FONT_XTINY, "W  /  FTP " + _ftp.format("%d"),
+                    Graphics.TEXT_JUSTIFY_CENTER);
 
-        // Tiny scale legend at the bottom; enough context without clutter.
-        dc.setPenWidth(1);
-        dc.drawLine((w * 27) / 100, h - 24, (w * 73) / 100, h - 24);
-        dc.drawText(cx, h - 21, Graphics.FONT_XTINY,
-                    "0  -  " + MAX_POWER.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
+        drawLiveMetrics(dc, cx, h - 91);
+        drawFuelGauge(dc, 14, h - 59, w - 28, 45);
+    }
+
+    function drawCheckEngine(dc, cx, y) {
+        var isHot = _hasPower && (_power > _ftp);
+        var x = cx - 42;
+        var label = isHot ? "FTP!" : ((_remoteCue != null) ? _remoteCue : _feedback);
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+        dc.setPenWidth(2);
+        if (isHot) {
+            dc.fillRectangle(x, y + 4, 84, 22);
+            dc.fillRectangle(x + 8, y, 20, 4);
+            dc.fillRectangle(x + 84, y + 10, 5, 9);
+            dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_BLACK);
+        } else {
+            dc.drawRectangle(x, y + 4, 84, 22);
+            dc.drawLine(x + 8, y + 4, x + 8, y);
+            dc.drawLine(x + 8, y, x + 28, y);
+            dc.drawLine(x + 84, y + 10, x + 89, y + 10);
+            dc.drawLine(x + 89, y + 10, x + 89, y + 19);
+            dc.drawLine(x + 89, y + 19, x + 84, y + 19);
+        }
+        dc.drawText(cx, y + 6, Graphics.FONT_XTINY,
+                    label, Graphics.TEXT_JUSTIFY_CENTER);
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
     }
 
     function drawTicksAndLabels(dc, cx, cy, r) {
-        // 40 subdivisions = 20 W/tick on the default 0-800 W scale.
+        var labelValues = [0, 50, 80, 100, 120, 150, 200, 300, 400];
         for (var i = 0; i <= 40; i += 1) {
-            var fraction = i / 40.0;
+            var percent = i * 10;
+            var fraction = _rideMath.fraction(percent);
             var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
-
-            var isMajor = ((i % 5) == 0);
-            var tickLen = isMajor ? 13 : (((i % 5) == 0) ? 10 : 6);
-            var pen = isMajor ? 3 : 1;
-
+            var isMajor = (labelValues.indexOf(percent) >= 0);
+            var tickLen = isMajor ? 14 : 5;
             var p1 = polarPoint(cx, cy, r - 3, angle);
             var p2 = polarPoint(cx, cy, r - 3 - tickLen, angle);
-            dc.setPenWidth(pen);
+            dc.setPenWidth(isMajor ? 3 : 1);
             dc.drawLine(p1[0], p1[1], p2[0], p2[1]);
 
             if (isMajor) {
-                var labelValue = ((MAX_POWER * i) / 40);
-                var lp = polarPoint(cx, cy, r - 30, angle);
+                var label = percent;
+                var lp = polarPoint(cx, cy, r - 31, angle);
                 dc.drawText(lp[0], lp[1] - 6, Graphics.FONT_XTINY,
-                            labelValue.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
+                            label.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
             }
         }
+
+        var ftpAngle = START_ANGLE - (SWEEP_ANGLE * _rideMath.fraction(100));
+        var ftpA = polarPoint(cx, cy, r + 1, ftpAngle);
+        var ftpB = polarPoint(cx, cy, r - 19, ftpAngle);
+        dc.setPenWidth(5);
+        dc.drawLine(ftpA[0], ftpA[1], ftpB[0], ftpB[1]);
+        dc.drawText(cx, cy - r + 18, Graphics.FONT_XTINY,
+                    "% FTP", Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     function drawNeedle(dc, cx, cy, r) {
         var shown = _needlePower;
         if (shown < 0) { shown = 0; }
-        if (shown > MAX_POWER) { shown = MAX_POWER; }
-
-        var fraction = shown / MAX_POWER.toFloat();
+        var percent = (shown * 100.0) / _ftp.toFloat();
+        var fraction = _rideMath.fraction(percent);
         var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
-        var tip = polarPoint(cx, cy, r - 25, angle);
-
-        // Build a tapered needle perpendicular to its direction.
-        var sideAngleA = angle + 90.0;
-        var sideAngleB = angle - 90.0;
-        var baseA = polarPoint(cx, cy, 5, sideAngleA);
-        var baseB = polarPoint(cx, cy, 5, sideAngleB);
+        var tip = polarPoint(cx, cy, r - 24, angle);
+        var baseA = polarPoint(cx, cy, 5, angle + 90.0);
+        var baseB = polarPoint(cx, cy, 5, angle - 90.0);
         var tail = polarPoint(cx, cy, 13, angle + 180.0);
+        dc.fillPolygon([[tip[0], tip[1]], [baseA[0], baseA[1]],
+                        [tail[0], tail[1]], [baseB[0], baseB[1]]]);
+    }
 
+    function fuelPercent() {
+        if (_fuelBudgetKj <= 0) { return 0.0; }
+        var remaining = (_reserveJoules / (_fuelBudgetKj * 1000.0)) * 100.0;
+        if (remaining < 0) { remaining = 0; }
+        if (remaining > 100) { remaining = 100; }
+        return remaining;
+    }
+
+    function fuelRemainingKj() {
+        return Math.floor(_reserveJoules / 1000.0);
+    }
+
+    function expectedHeartRate() {
+        if (_ftp <= 0) { return _restingHeartRate; }
+        var powerLoad = (_power.toFloat() / _ftp.toFloat()) * 100.0;
+        if (powerLoad < 0) { powerLoad = 0; }
+        if (powerLoad > 100) { powerLoad = 100; }
+        return Math.floor(_restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * powerLoad) / 100.0));
+    }
+
+    function drawLiveMetrics(dc, cx, y) {
+        var powerPercent = (_ftp > 0) ? ((_power * 100) / _ftp) : 0;
+        var hrText = (_heartRate > 0) ? _heartRate.format("%d") : "--";
+        var deltaText = "";
+        if (_heartRate > 0 && _power > 0) {
+            var delta = _heartRate - expectedHeartRate();
+            deltaText = (delta >= 0 ? "+" : "") + delta.format("%d");
+        }
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.fillPolygon([
-            [tip[0], tip[1]],
-            [baseA[0], baseA[1]],
-            [tail[0], tail[1]],
-            [baseB[0], baseB[1]]
-        ]);
+        dc.drawText(cx, y, Graphics.FONT_XTINY,
+                    "HR " + hrText + " " + deltaText + "   P " + powerPercent.format("%d") + "%   E " + _effortScore.format("%d"),
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        if (_remoteTargetHigh > 0) {
+            dc.drawText(cx, y + 11, Graphics.FONT_XTINY,
+                        "T " + _remoteTargetLow.format("%d") + "-" + _remoteTargetHigh.format("%d") + "  " + _remoteRisk + " " + _remoteConfidence.format("%d") + "%",
+                        Graphics.TEXT_JUSTIFY_CENTER);
+        }
+    }
+
+    function drawFuelGauge(dc, x, y, width, height) {
+        var percent = fuelPercent();
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+        dc.drawText(x + (width / 2), y - 1, Graphics.FONT_XTINY,
+                    "RES " + percent.format("%d") + "%  " + fuelRemainingKj().format("%d") + "kJ",
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        var barY = y + 15;
+        var segments = 20;
+        var gap = 1;
+        var filled = Math.ceil(percent / 5.0);
+        for (var i = 0; i < segments; i += 1) {
+            var segmentX = x + ((width * i) / segments);
+            var segmentRight = x + ((width * (i + 1)) / segments) - gap;
+            var segmentWidth = segmentRight - segmentX;
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+            dc.drawRectangle(segmentX, barY, segmentWidth, 16);
+            if (i < filled) {
+                dc.fillRectangle(segmentX + 2, barY + 2, segmentWidth - 3, 12);
+            }
+        }
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
     }
 
     function drawCompactGauge(dc) {
         var w = dc.getWidth();
         var h = dc.getHeight();
         var cx = w / 2;
-        var cy = h / 2;
-        var r = (w * 38) / 100;
-
-        dc.setPenWidth(2);
-        dc.drawArc(cx, cy, r, Graphics.ARC_CLOCKWISE, 210, 330);
-
-        var shown = _needlePower;
-        if (shown < 0) { shown = 0; }
-        if (shown > MAX_POWER) { shown = MAX_POWER; }
-        var fraction = shown / MAX_POWER.toFloat();
-        var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
-        var tip = polarPoint(cx, cy, r - 8, angle);
-        dc.setPenWidth(3);
-        dc.drawLine(cx, cy, tip[0], tip[1]);
-        dc.fillCircle(cx, cy, 4);
-
         var powerText = _hasPower ? _power.format("%d") : "--";
-        dc.drawText(cx, cy + 10, Graphics.FONT_NUMBER_MILD,
+        dc.drawText(cx, 2, Graphics.FONT_NUMBER_MILD,
                     powerText, Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(cx, h - 18, Graphics.FONT_XTINY,
+                    ((_remoteCue != null) ? _remoteCue : _feedback) + "  " + fuelPercent().format("%d") + "%",
+                    Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     function polarPoint(cx, cy, radius, degrees) {
         var rad = Math.toRadians(degrees);
-        var x = cx + (Math.cos(rad) * radius);
-        var y = cy - (Math.sin(rad) * radius);
-        return [x, y];
+        return [cx + (Math.cos(rad) * radius),
+                cy - (Math.sin(rad) * radius)];
     }
 }

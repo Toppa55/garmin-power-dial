@@ -1,0 +1,20 @@
+<settings>
+    <setting propertyKey="@Properties.ftpWatts" title="@Strings.FtpTitle">
+        <settingConfig type="numeric" min="50" max="600" />
+    </setting>
+    <setting propertyKey="@Properties.fuelBudgetKj" title="@Strings.FuelTitle">
+        <settingConfig type="numeric" min="100" max="10000" />
+    </setting>
+    <setting propertyKey="@Properties.restingHeartRate" title="@Strings.RestingHrTitle">
+        <settingConfig type="numeric" min="30" max="120" />
+    </setting>
+    <setting propertyKey="@Properties.thresholdHeartRate" title="@Strings.ThresholdHrTitle">
+        <settingConfig type="numeric" min="80" max="220" />
+    </setting>
+    <setting propertyKey="@Properties.maxHeartRate" title="@Strings.MaxHrTitle">
+        <settingConfig type="numeric" min="100" max="240" />
+    </setting>
+    <setting propertyKey="@Properties.decouplingPercent" title="@Strings.DecouplingTitle">
+        <settingConfig type="numeric" min="3" max="30" />
+    </setting>
+</settings>
