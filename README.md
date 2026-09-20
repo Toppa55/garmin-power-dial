@@ -1,6 +1,6 @@
 # Garmin Power Dial
 
-A monochrome analogue cycling power data field for the **Garmin Edge 130 Plus**, written in Monkey C for Garmin Connect IQ.
+A monochrome rev-counter cycling power dashboard for the **Garmin Edge 130 Plus**, written in Monkey C for Garmin Connect IQ.
 
 This repository preserves Thomas's existing app source, application ID, resources, and Windows build/install helpers. The initial import changes project documentation and repository housekeeping, not the app's behaviour.
 
@@ -10,24 +10,27 @@ This repository preserves Thomas's existing app source, application ID, resource
 
 ## Features
 
-- 240-degree dial with a 0–800 W needle scale.
-- Major ticks every 100 W and minor ticks every 20 W.
-- Damped needle movement with a live digital power readout.
-- Full gauge when field height is at least 220 pixels; compact gauge otherwise.
-- Missing power displays `--`; the needle decays towards zero.
-- Needle position is clamped to the scale; the digital readout retains the supplied power value.
+- 240-degree rev-counter dial scaled from 0–200% of the rider's FTP.
+- Damped needle with a large live watt readout and a marked FTP redline.
+- Check-engine-style warning lamp that fills when live power exceeds FTP.
+- Fuel meter based on remaining mechanical-work budget for the ride.
+- FTP and fuel budget settings editable through Garmin Connect Mobile.
+- Secure companion service that uses the OpenAI API to calibrate both settings from recent rides.
+- Compact watt and fuel display for shorter data-field layouts.
 
 ## Project layout
 
 ```text
 source/                   App entry point and gauge rendering
 resources/                App name and launcher icon
+backend/                  Secure OpenAI-powered calibration service
 manifest.xml              App identity, Edge 130 Plus target, minimum API 3.2.0
 monkey.jungle              Connect IQ build configuration
 BUILD_AND_INSTALL.cmd     Windows launcher
 BUILD_AND_INSTALL.ps1     Existing compiler discovery and USB install helper
 PREVIEW.png               Original design preview
 docs/VALIDATION.md         Import checks and device review checklist
+docs/AI_COMPANION.md       Secure AI architecture and local setup
 .github/                  Pull request template
 ```
 
@@ -63,3 +66,7 @@ Use **branch → change → commit → push → pull request → review → merg
 See [validation notes](docs/VALIDATION.md) for actual checks and the remaining simulator/device checklist. A successful compiler run does not establish runtime or hardware correctness. There is no automated CI build configured yet.
 
 Only the Edge 130 Plus is declared in the manifest. No other Garmin devices are claimed to be supported. No open-source licence has been selected; repository visibility does not grant reuse rights.
+
+## AI calibration
+
+The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard continues to calculate fuel offline from the last calibrated settings.

@@ -13,6 +13,8 @@
 *.key
 .env
 .env.*
+!.env.example
+!backend/.env.example
 
 # Local editor / OS files
 .vscode/
