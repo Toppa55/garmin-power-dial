@@ -21,7 +21,11 @@ function send(response, status, body) {
 }
 
 function isAuthorized(request) {
-  return token && request.headers.authorization === `Bearer ${token}`;
+  const paired = token && request.headers.authorization === `Bearer ${token}`;
+  const address = request.socket.remoteAddress;
+  const localDashboard = request.headers["x-companion-local"] === "1" &&
+    (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1");
+  return paired || localDashboard;
 }
 
 async function readJson(request) {

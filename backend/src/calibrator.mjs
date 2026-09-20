@@ -135,6 +135,7 @@ export async function calibrateFuel(input, options = {}) {
   return {
     ftp_watts: Math.round(clamp(Number(result.ftp_watts), 50, 600)),
     ride_energy_budget_kj: Math.round(clamp(Number(result.ride_energy_budget_kj), 100, 10000)),
+    hard_effort_reserve_kj: Math.round(clamp(Number(result.ftp_watts) * 0.09, 10, 45)),
     resting_hr_bpm: resting,
     threshold_hr_bpm: threshold,
     max_hr_bpm: maximum,
