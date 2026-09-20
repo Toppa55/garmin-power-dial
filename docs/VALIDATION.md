@@ -23,4 +23,12 @@ No simulator session or physical-device test was performed for this import. Befo
 - [ ] Missing power shows `--`, needle decays, and power reconnection restores readings.
 - [ ] Sideloaded app appears as Analog Power Dial and runs during a cycling activity.
 
+## Rev-counter and AI fuel change
+
+- [ ] Full-screen dial labels 0–200% FTP without clipping on Edge 130 Plus.
+- [ ] Check-engine lamp is outlined at or below FTP and filled above FTP.
+- [ ] Fuel starts at 100%, falls with accumulated mechanical work, and clamps at 0%.
+- [ ] Garmin Connect Mobile changes to FTP and fuel budget appear in the running field.
+- [ ] Companion calibration returns bounded FTP and fuel values without exposing the OpenAI key.
+
 The import preserves existing behaviour, including any pre-existing limitations. Compilation alone is not a runtime test. There are no automated unit tests or CI checks configured in this initial repository.

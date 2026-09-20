@@ -1,0 +1,4 @@
+<properties>
+    <property id="ftpWatts" type="number">250</property>
+    <property id="fuelBudgetKj" type="number">1200</property>
+</properties>

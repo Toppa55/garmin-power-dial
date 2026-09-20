@@ -1,3 +1,5 @@
 <strings>
     <string id="AppName">Analog Power Dial</string>
+    <string id="FtpTitle">FTP (watts)</string>
+    <string id="FuelTitle">Ride fuel budget (kJ)</string>
 </strings>

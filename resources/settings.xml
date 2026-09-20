@@ -1,0 +1,8 @@
+<settings>
+    <setting propertyKey="@Properties.ftpWatts" title="@Strings.FtpTitle">
+        <settingConfig type="numeric" min="50" max="600" />
+    </setting>
+    <setting propertyKey="@Properties.fuelBudgetKj" title="@Strings.FuelTitle">
+        <settingConfig type="numeric" min="100" max="10000" />
+    </setting>
+</settings>
