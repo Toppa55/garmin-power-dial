@@ -13,9 +13,10 @@ This repository preserves Thomas's existing app source, application ID, resource
 - 240-degree rev-counter dial scaled from 0–200% of the rider's FTP.
 - Damped needle with a large live watt readout and a marked FTP redline.
 - Check-engine-style warning lamp that fills when live power exceeds FTP.
-- Fuel meter based on remaining mechanical-work budget for the ride.
-- FTP and fuel budget settings editable through Garmin Connect Mobile.
-- Secure companion service that uses the OpenAI API to calibrate both settings from recent rides.
+- Twenty-segment fuel meter with exact remaining percentage and mechanical work in kJ.
+- Live HR-versus-power comparison, 0–100 exertion score, and short cues such as `HOLD`, `EASE OFF`, `HR DRIFT`, and `FUEL LOW`.
+- FTP, fuel, and heart-rate model settings editable through Garmin Connect Mobile.
+- Secure companion service that learns a cumulative rider profile from the complete Garmin Connect activity history through OAuth 2.0.
 - Compact watt and fuel display for shorter data-field layouts.
 
 ## Project layout
@@ -69,4 +70,4 @@ Only the Edge 130 Plus is declared in the manifest. No other Garmin devices are 
 
 ## AI calibration
 
-The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard continues to calculate fuel offline from the last calibrated settings.
+The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. Garmin Connect supplies completed ride history to the service after OAuth consent; the service aggregates every ride and updates a versioned rider profile. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard applies that learned profile offline to compare live HR and power every second.

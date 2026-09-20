@@ -2,4 +2,8 @@
     <string id="AppName">Analog Power Dial</string>
     <string id="FtpTitle">FTP (watts)</string>
     <string id="FuelTitle">Ride fuel budget (kJ)</string>
+    <string id="RestingHrTitle">Resting heart rate</string>
+    <string id="ThresholdHrTitle">Threshold heart rate</string>
+    <string id="MaxHrTitle">Maximum heart rate</string>
+    <string id="DecouplingTitle">HR drift warning (%)</string>
 </strings>

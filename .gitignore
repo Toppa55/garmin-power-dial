@@ -2,6 +2,7 @@
 /build/
 /bin/
 /gen/
+/backend/data/
 *.prg
 *.prg.debug.xml
 *.iq

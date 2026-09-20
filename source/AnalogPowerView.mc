@@ -9,30 +9,54 @@ class AnalogPowerView extends WatchUi.DataField {
     const MAX_FTP_PERCENT = 200;
     const DEFAULT_FTP = 250;
     const DEFAULT_FUEL_KJ = 1200;
+    const DEFAULT_RESTING_HR = 60;
+    const DEFAULT_THRESHOLD_HR = 170;
+    const DEFAULT_MAX_HR = 190;
+    const DEFAULT_DECOUPLING = 10;
 
     hidden var _power;
     hidden var _needlePower;
     hidden var _averagePower;
+    hidden var _heartRate;
+    hidden var _averageHeartRate;
     hidden var _timerTime;
     hidden var _hasPower;
     hidden var _ftp;
     hidden var _fuelBudgetKj;
+    hidden var _restingHeartRate;
+    hidden var _thresholdHeartRate;
+    hidden var _maxHeartRate;
+    hidden var _decouplingPercent;
+    hidden var _effortScore;
+    hidden var _feedback;
 
     function initialize() {
         DataField.initialize();
         _power = 0;
         _needlePower = 0.0;
         _averagePower = 0;
+        _heartRate = 0;
+        _averageHeartRate = 0;
         _timerTime = 0;
         _hasPower = false;
+        _effortScore = 0;
+        _feedback = "PAIR HR";
         loadCalibration();
     }
 
     function loadCalibration() {
         var configuredFtp = Application.Properties.getValue("ftpWatts");
         var configuredFuel = Application.Properties.getValue("fuelBudgetKj");
+        var configuredRestingHr = Application.Properties.getValue("restingHeartRate");
+        var configuredThresholdHr = Application.Properties.getValue("thresholdHeartRate");
+        var configuredMaxHr = Application.Properties.getValue("maxHeartRate");
+        var configuredDecoupling = Application.Properties.getValue("decouplingPercent");
         _ftp = (configuredFtp != null && configuredFtp > 0) ? configuredFtp : DEFAULT_FTP;
         _fuelBudgetKj = (configuredFuel != null && configuredFuel > 0) ? configuredFuel : DEFAULT_FUEL_KJ;
+        _restingHeartRate = (configuredRestingHr != null && configuredRestingHr > 0) ? configuredRestingHr : DEFAULT_RESTING_HR;
+        _thresholdHeartRate = (configuredThresholdHr != null && configuredThresholdHr > _restingHeartRate) ? configuredThresholdHr : DEFAULT_THRESHOLD_HR;
+        _maxHeartRate = (configuredMaxHr != null && configuredMaxHr > _thresholdHeartRate) ? configuredMaxHr : DEFAULT_MAX_HR;
+        _decouplingPercent = (configuredDecoupling != null && configuredDecoupling > 0) ? configuredDecoupling : DEFAULT_DECOUPLING;
     }
 
     function compute(info) {
@@ -50,7 +74,58 @@ class AnalogPowerView extends WatchUi.DataField {
         }
 
         _averagePower = (info.averagePower != null) ? info.averagePower : 0;
+        _heartRate = (info.currentHeartRate != null) ? info.currentHeartRate : 0;
+        _averageHeartRate = (info.averageHeartRate != null) ? info.averageHeartRate : 0;
         _timerTime = (info.timerTime != null) ? info.timerTime : 0;
+        updateEffortFeedback();
+    }
+
+    function updateEffortFeedback() {
+        var powerLoad = (_ftp > 0) ? ((_power.toFloat() / _ftp.toFloat()) * 100.0) : 0.0;
+        var hrRange = _thresholdHeartRate - _restingHeartRate;
+        var heartLoad = 0.0;
+        if (_heartRate > 0 && hrRange > 0) {
+            heartLoad = ((_heartRate - _restingHeartRate).toFloat() / hrRange.toFloat()) * 100.0;
+        }
+        if (powerLoad < 0) { powerLoad = 0; }
+        if (powerLoad > 150) { powerLoad = 150; }
+        if (heartLoad < 0) { heartLoad = 0; }
+        if (heartLoad > 150) { heartLoad = 150; }
+        _effortScore = Math.floor((powerLoad * 0.6) + (heartLoad * 0.4));
+        if (_effortScore > 100) { _effortScore = 100; }
+
+        if (!_hasPower) {
+            _feedback = "NO POWER";
+            return;
+        }
+        if (_heartRate <= 0) {
+            _feedback = "PAIR HR";
+            return;
+        }
+        if (fuelPercent() <= 15) {
+            _feedback = "FUEL LOW";
+            return;
+        }
+        if (_power > _ftp && _heartRate >= _thresholdHeartRate) {
+            _feedback = "EASE OFF";
+            return;
+        }
+
+        var cappedPower = powerLoad;
+        if (cappedPower > 100) { cappedPower = 100; }
+        var expectedHr = _restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * cappedPower) / 100.0);
+        var driftLimit = expectedHr * (1.0 + (_decouplingPercent.toFloat() / 100.0));
+        if (_timerTime > 1200000 && powerLoad > 50 && _heartRate > driftLimit) {
+            _feedback = "HR DRIFT";
+        } else if (_effortScore >= 88) {
+            _feedback = "HARD";
+        } else if (powerLoad >= 78 && powerLoad <= 102 && heartLoad <= 105) {
+            _feedback = "HOLD";
+        } else if (_effortScore < 55 && fuelPercent() > 35) {
+            _feedback = "PUSH";
+        } else {
+            _feedback = "STEADY";
+        }
     }
 
     function onUpdate(dc) {
@@ -69,8 +144,8 @@ class AnalogPowerView extends WatchUi.DataField {
         var w = dc.getWidth();
         var h = dc.getHeight();
         var cx = w / 2;
-        var cy = (h * 42) / 100;
-        var r = (w * 43) / 100;
+        var cy = (h * 39) / 100;
+        var r = (w * 41) / 100;
 
         drawCheckEngine(dc, cx, 5);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
@@ -94,29 +169,31 @@ class AnalogPowerView extends WatchUi.DataField {
                     Graphics.FONT_XTINY, "W  /  FTP " + _ftp.format("%d"),
                     Graphics.TEXT_JUSTIFY_CENTER);
 
-        drawFuelGauge(dc, 14, h - 49, w - 28, 35);
+        drawLiveMetrics(dc, cx, h - 91);
+        drawFuelGauge(dc, 14, h - 59, w - 28, 45);
     }
 
     function drawCheckEngine(dc, cx, y) {
         var isHot = _hasPower && (_power > _ftp);
-        var x = cx - 28;
+        var x = cx - 42;
+        var label = isHot ? "FTP!" : _feedback;
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.setPenWidth(2);
         if (isHot) {
-            dc.fillRectangle(x, y + 4, 56, 22);
+            dc.fillRectangle(x, y + 4, 84, 22);
             dc.fillRectangle(x + 8, y, 20, 4);
-            dc.fillRectangle(x + 56, y + 10, 5, 9);
+            dc.fillRectangle(x + 84, y + 10, 5, 9);
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_BLACK);
         } else {
-            dc.drawRectangle(x, y + 4, 56, 22);
+            dc.drawRectangle(x, y + 4, 84, 22);
             dc.drawLine(x + 8, y + 4, x + 8, y);
             dc.drawLine(x + 8, y, x + 28, y);
-            dc.drawLine(x + 56, y + 10, x + 61, y + 10);
-            dc.drawLine(x + 61, y + 10, x + 61, y + 19);
-            dc.drawLine(x + 61, y + 19, x + 56, y + 19);
+            dc.drawLine(x + 84, y + 10, x + 89, y + 10);
+            dc.drawLine(x + 89, y + 10, x + 89, y + 19);
+            dc.drawLine(x + 89, y + 19, x + 84, y + 19);
         }
         dc.drawText(cx, y + 6, Graphics.FONT_XTINY,
-                    isHot ? "FTP!" : "ENGINE", Graphics.TEXT_JUSTIFY_CENTER);
+                    label, Graphics.TEXT_JUSTIFY_CENTER);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
     }
 
@@ -172,22 +249,53 @@ class AnalogPowerView extends WatchUi.DataField {
         return remaining;
     }
 
+    function fuelRemainingKj() {
+        var remaining = (_fuelBudgetKj.toFloat() * fuelPercent()) / 100.0;
+        if (remaining < 0) { remaining = 0; }
+        return Math.floor(remaining);
+    }
+
+    function expectedHeartRate() {
+        if (_ftp <= 0) { return _restingHeartRate; }
+        var powerLoad = (_power.toFloat() / _ftp.toFloat()) * 100.0;
+        if (powerLoad < 0) { powerLoad = 0; }
+        if (powerLoad > 100) { powerLoad = 100; }
+        return Math.floor(_restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * powerLoad) / 100.0));
+    }
+
+    function drawLiveMetrics(dc, cx, y) {
+        var powerPercent = (_ftp > 0) ? ((_power * 100) / _ftp) : 0;
+        var hrText = (_heartRate > 0) ? _heartRate.format("%d") : "--";
+        var deltaText = "";
+        if (_heartRate > 0 && _power > 0) {
+            var delta = _heartRate - expectedHeartRate();
+            deltaText = (delta >= 0 ? "+" : "") + delta.format("%d");
+        }
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+        dc.drawText(cx, y, Graphics.FONT_XTINY,
+                    "HR " + hrText + " " + deltaText + "   P " + powerPercent.format("%d") + "%   E " + _effortScore.format("%d"),
+                    Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
     function drawFuelGauge(dc, x, y, width, height) {
         var percent = fuelPercent();
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.drawText(x, y - 1, Graphics.FONT_XTINY, "E", Graphics.TEXT_JUSTIFY_LEFT);
-        dc.drawText(x + width, y - 1, Graphics.FONT_XTINY, "F", Graphics.TEXT_JUSTIFY_RIGHT);
         dc.drawText(x + (width / 2), y - 1, Graphics.FONT_XTINY,
-                    "FUEL " + percent.format("%d") + "%", Graphics.TEXT_JUSTIFY_CENTER);
+                    "FUEL " + percent.format("%d") + "%  " + fuelRemainingKj().format("%d") + "kJ",
+                    Graphics.TEXT_JUSTIFY_CENTER);
         var barY = y + 15;
-        dc.setPenWidth(2);
-        dc.drawRectangle(x, barY, width, 16);
-        var innerWidth = ((width - 4) * Math.floor(percent)) / 100;
-        if (innerWidth > 0) { dc.fillRectangle(x + 2, barY + 2, innerWidth, 12); }
-        for (var i = 1; i < 4; i += 1) {
-            var markX = x + ((width * i) / 4);
-            dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_BLACK);
-            dc.drawLine(markX, barY + 2, markX, barY + 13);
+        var segments = 20;
+        var gap = 1;
+        var filled = Math.ceil(percent / 5.0);
+        for (var i = 0; i < segments; i += 1) {
+            var segmentX = x + ((width * i) / segments);
+            var segmentRight = x + ((width * (i + 1)) / segments) - gap;
+            var segmentWidth = segmentRight - segmentX;
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+            dc.drawRectangle(segmentX, barY, segmentWidth, 16);
+            if (i < filled) {
+                dc.fillRectangle(segmentX + 2, barY + 2, segmentWidth - 3, 12);
+            }
         }
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
     }
@@ -200,7 +308,7 @@ class AnalogPowerView extends WatchUi.DataField {
         dc.drawText(cx, 2, Graphics.FONT_NUMBER_MILD,
                     powerText, Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(cx, h - 18, Graphics.FONT_XTINY,
-                    fuelPercent().format("%d") + "% FUEL",
+                    _feedback + "  " + fuelPercent().format("%d") + "%",
                     Graphics.TEXT_JUSTIFY_CENTER);
     }
 
