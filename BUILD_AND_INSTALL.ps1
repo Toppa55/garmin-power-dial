@@ -46,9 +46,18 @@ Write-Host "Found compiler:" $MonkeyC -ForegroundColor Green
 $BuildDir = Join-Path $ProjectDir "build"
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 $Prg = Join-Path $BuildDir "AnalogPowerDial.prg"
-$Key = Join-Path $ProjectDir "developer_key.der"
+$KeyCandidates = @(
+    $env:GARMIN_DEVELOPER_KEY,
+    (Join-Path $ProjectDir "developer_key.der"),
+    (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Garmin Connect IQ\Keys\garmin-power-dial-developer-key.der")
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
+$Key = $KeyCandidates | Select-Object -First 1
+if (-not $Key) {
+    throw "Garmin signing key not found. Set GARMIN_DEVELOPER_KEY or provide developer_key.der in the project folder."
+}
 $Jungle = Join-Path $ProjectDir "monkey.jungle"
 
+Write-Host "Using signing key:" $Key -ForegroundColor Green
 Write-Host "Building for Edge 130 Plus..." -ForegroundColor Cyan
 & $MonkeyC -d edge130plus -f $Jungle -o $Prg -y $Key
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Prg)) {

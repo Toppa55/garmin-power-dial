@@ -38,7 +38,7 @@ docs/AI_COMPANION.md       Secure AI architecture and local setup
 
 Install the [Garmin Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/), its required Java runtime, and the **Edge 130 Plus** device files using SDK Manager. Make the SDK's `bin` directory available on your command path, or use the compiler's full path.
 
-You also need a local developer signing key. **The key is deliberately not stored in Git.** Thomas should keep using his original `developer_key.der` for continuity, with a secure backup outside the repository. Other developers must supply their own key. Do not commit keys or send them in pull requests.
+You also need a local developer signing key. **The key is deliberately not stored in Git.** The build helper checks `GARMIN_DEVELOPER_KEY`, `developer_key.der` in the project root, and the local `Documents/Garmin Connect IQ/Keys/garmin-power-dial-developer-key.der` path. Keep the same key for update continuity, with a secure backup outside the repository. Do not commit keys or send them in pull requests.
 
 From the project root, in PowerShell:
 
