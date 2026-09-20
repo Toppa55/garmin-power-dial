@@ -1,13 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { calibrateFuel } from "./calibrator.mjs";
 import { loadConnection, saveConnection } from "./connection-store.mjs";
 import { createAuthorizationUrl, exchangeAuthorizationCode, fetchCompleteActivityHistory, refreshAccessToken } from "./garmin-connect.mjs";
 import { loadProfile, saveProfile } from "./profile-store.mjs";
+import { clearLiveSession, coachLive } from "./live-coach.mjs";
+import { loadJson, saveJson } from "./json-store.mjs";
+import { createPlan } from "./planner.mjs";
 
 const port = Number(process.env.PORT ?? 8787);
 const token = process.env.COMPANION_TOKEN;
 const pendingAuthorizations = new Map();
+const dashboardPath = fileURLToPath(new URL("../public/index.html", import.meta.url));
 
 function send(response, status, body) {
   response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -45,6 +51,11 @@ async function learnFromGarmin(riderId, connection, targetRideMinutes = 120, ftp
 const server = createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host ?? "127.0.0.1"}`);
   if (request.method === "GET" && url.pathname === "/health") return send(response, 200, { ok: true });
+  if (request.method === "GET" && url.pathname === "/") {
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    response.end(await readFile(dashboardPath));
+    return;
+  }
 
   try {
     if (request.method === "GET" && url.pathname === "/v1/garmin/callback") {
@@ -97,6 +108,59 @@ const server = createServer(async (request, response) => {
       const profile = await calibrateFuel(input);
       if (input.rider_id) await saveProfile(String(input.rider_id), profile);
       return send(response, 200, profile);
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/context") {
+      const input = await readJson(request);
+      if (!input.rider_id) throw new Error("rider_id is required");
+      const context = {
+        sleep_hours: Math.max(0, Math.min(24, Number(input.sleep_hours ?? 8))),
+        night_shift: Boolean(input.night_shift),
+        available_minutes: Math.max(0, Math.min(1440, Number(input.available_minutes ?? 0))),
+        schedule: String(input.schedule ?? "").slice(0, 4000),
+        recovery_coaching: input.recovery_coaching !== false
+      };
+      await saveJson("contexts", String(input.rider_id), context);
+      return send(response, 200, context);
+    }
+
+    if (request.method === "GET" && url.pathname === "/v1/context") {
+      const context = await loadJson("contexts", url.searchParams.get("rider_id"));
+      return send(response, 200, context ?? {});
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/plan") {
+      const input = await readJson(request);
+      if (!input.rider_id) throw new Error("rider_id is required");
+      const [profile, context] = await Promise.all([
+        loadProfile(String(input.rider_id)), loadJson("contexts", String(input.rider_id))
+      ]);
+      if (!profile) return send(response, 404, { error: "Sync or calibrate Garmin history before requesting a plan" });
+      return send(response, 200, await createPlan({ profile, context: context ?? {}, question: String(input.question ?? "What should I do today?") }));
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/live/state") {
+      const input = await readJson(request);
+      const profile = await loadProfile(String(input.rider_id));
+      const result = await coachLive(input, profile ?? {});
+      await saveJson("live", `${input.rider_id}:${input.session_id ?? "ride"}`, { state: input, prediction: result });
+      return send(response, 200, result);
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/live/complete") {
+      const input = await readJson(request);
+      if (!input.rider_id || !input.session_id) throw new Error("rider_id and session_id are required");
+      const live = await loadJson("live", `${input.rider_id}:${input.session_id}`);
+      const actual = {
+        actual_effort: input.actual_effort == null ? null : Number(input.actual_effort),
+        completed: input.completed !== false,
+        notes: String(input.notes ?? "").slice(0, 1000)
+      };
+      const predictedEffort = Number(live?.prediction?.fatigue ?? 0);
+      const predictionError = actual.actual_effort == null ? null : actual.actual_effort * 10 - predictedEffort;
+      await saveJson("outcomes", `${input.rider_id}:${input.session_id}`, { prediction: live?.prediction ?? null, actual, prediction_error: predictionError });
+      clearLiveSession(String(input.rider_id), String(input.session_id));
+      return send(response, 200, { saved: true, prediction_error: predictionError });
     }
 
     return send(response, 404, { error: "Not found" });

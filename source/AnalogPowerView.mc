@@ -1,14 +1,15 @@
 using Toybox.Application;
 using Toybox.Graphics;
 using Toybox.Math;
+using Toybox.Lang;
 using Toybox.WatchUi;
 
 class AnalogPowerView extends WatchUi.DataField {
     const START_ANGLE = 210.0;
     const SWEEP_ANGLE = 240.0;
-    const MAX_FTP_PERCENT = 200;
     const DEFAULT_FTP = 250;
-    const DEFAULT_FUEL_KJ = 1200;
+    const DEFAULT_RESERVE_KJ = 25;
+    const DEFAULT_RECOVERY_SECONDS = 300;
     const DEFAULT_RESTING_HR = 60;
     const DEFAULT_THRESHOLD_HR = 170;
     const DEFAULT_MAX_HR = 190;
@@ -23,12 +24,20 @@ class AnalogPowerView extends WatchUi.DataField {
     hidden var _hasPower;
     hidden var _ftp;
     hidden var _fuelBudgetKj;
+    hidden var _reserveJoules;
+    hidden var _lastTimerTime;
+    hidden var _rideMath;
     hidden var _restingHeartRate;
     hidden var _thresholdHeartRate;
     hidden var _maxHeartRate;
     hidden var _decouplingPercent;
     hidden var _effortScore;
     hidden var _feedback;
+    hidden var _remoteCue;
+    hidden var _remoteTargetLow;
+    hidden var _remoteTargetHigh;
+    hidden var _remoteRisk;
+    hidden var _remoteConfidence;
 
     function initialize() {
         DataField.initialize();
@@ -41,7 +50,15 @@ class AnalogPowerView extends WatchUi.DataField {
         _hasPower = false;
         _effortScore = 0;
         _feedback = "PAIR HR";
+        _remoteCue = null;
+        _remoteTargetLow = 0;
+        _remoteTargetHigh = 0;
+        _remoteRisk = "";
+        _remoteConfidence = 0;
+        _lastTimerTime = 0;
+        _rideMath = new RideMath();
         loadCalibration();
+        _reserveJoules = _fuelBudgetKj * 1000.0;
     }
 
     function loadCalibration() {
@@ -52,7 +69,9 @@ class AnalogPowerView extends WatchUi.DataField {
         var configuredMaxHr = Application.Properties.getValue("maxHeartRate");
         var configuredDecoupling = Application.Properties.getValue("decouplingPercent");
         _ftp = (configuredFtp != null && configuredFtp > 0) ? configuredFtp : DEFAULT_FTP;
-        _fuelBudgetKj = (configuredFuel != null && configuredFuel > 0) ? configuredFuel : DEFAULT_FUEL_KJ;
+        // Values above 200 kJ came from the previous total-work fuel model.
+        // Migrate those installs to a realistic hard-effort reserve.
+        _fuelBudgetKj = (configuredFuel != null && configuredFuel > 0 && configuredFuel <= 200) ? configuredFuel : DEFAULT_RESERVE_KJ;
         _restingHeartRate = (configuredRestingHr != null && configuredRestingHr > 0) ? configuredRestingHr : DEFAULT_RESTING_HR;
         _thresholdHeartRate = (configuredThresholdHr != null && configuredThresholdHr > _restingHeartRate) ? configuredThresholdHr : DEFAULT_THRESHOLD_HR;
         _maxHeartRate = (configuredMaxHr != null && configuredMaxHr > _thresholdHeartRate) ? configuredMaxHr : DEFAULT_MAX_HR;
@@ -76,8 +95,37 @@ class AnalogPowerView extends WatchUi.DataField {
         _averagePower = (info.averagePower != null) ? info.averagePower : 0;
         _heartRate = (info.currentHeartRate != null) ? info.currentHeartRate : 0;
         _averageHeartRate = (info.averageHeartRate != null) ? info.averageHeartRate : 0;
-        _timerTime = (info.timerTime != null) ? info.timerTime : 0;
+        var nextTimer = (info.timerTime != null) ? info.timerTime : 0;
+        if (nextTimer < _lastTimerTime) {
+            _reserveJoules = _fuelBudgetKj * 1000.0;
+        }
+        var dt = (nextTimer - _lastTimerTime) / 1000.0;
+        _reserveJoules = _rideMath.reserve(_reserveJoules, _power, _ftp,
+                                          _fuelBudgetKj * 1000, DEFAULT_RECOVERY_SECONDS, dt);
+        _lastTimerTime = nextTimer;
+        _timerTime = nextTimer;
         updateEffortFeedback();
+    }
+
+    function receiveCoach(data) {
+        if (!(data instanceof Lang.Dictionary)) { return; }
+        if (data.hasKey("cue")) { _remoteCue = data["cue"].toString(); }
+        if (data.hasKey("targetLow")) { _remoteTargetLow = data["targetLow"].toNumber(); }
+        if (data.hasKey("targetHigh")) { _remoteTargetHigh = data["targetHigh"].toNumber(); }
+        if (data.hasKey("risk")) { _remoteRisk = data["risk"].toString(); }
+        if (data.hasKey("confidence")) { _remoteConfidence = data["confidence"].toNumber(); }
+        if (data.hasKey("ftp") && data["ftp"].toNumber() > 0) {
+            _ftp = data["ftp"].toNumber();
+            Application.Properties.setValue("ftpWatts", _ftp);
+        }
+        if (data.hasKey("reserveKj") && data["reserveKj"].toNumber() > 0) {
+            var oldCapacity = _fuelBudgetKj * 1000.0;
+            var oldFraction = (oldCapacity > 0) ? (_reserveJoules / oldCapacity) : 1.0;
+            _fuelBudgetKj = data["reserveKj"].toNumber();
+            _reserveJoules = _fuelBudgetKj * 1000.0 * oldFraction;
+            Application.Properties.setValue("fuelBudgetKj", _fuelBudgetKj);
+        }
+        WatchUi.requestUpdate();
     }
 
     function updateEffortFeedback() {
@@ -176,7 +224,7 @@ class AnalogPowerView extends WatchUi.DataField {
     function drawCheckEngine(dc, cx, y) {
         var isHot = _hasPower && (_power > _ftp);
         var x = cx - 42;
-        var label = isHot ? "FTP!" : _feedback;
+        var label = isHot ? "FTP!" : ((_remoteCue != null) ? _remoteCue : _feedback);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.setPenWidth(2);
         if (isHot) {
@@ -198,25 +246,27 @@ class AnalogPowerView extends WatchUi.DataField {
     }
 
     function drawTicksAndLabels(dc, cx, cy, r) {
-        for (var i = 0; i <= 20; i += 1) {
-            var fraction = i / 20.0;
+        var labelValues = [0, 50, 80, 100, 120, 150, 200, 300, 400];
+        for (var i = 0; i <= 40; i += 1) {
+            var percent = i * 10;
+            var fraction = _rideMath.fraction(percent);
             var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
-            var isMajor = ((i % 5) == 0);
-            var tickLen = isMajor ? 14 : ((i % 2) == 0 ? 9 : 6);
+            var isMajor = (labelValues.indexOf(percent) >= 0);
+            var tickLen = isMajor ? 14 : 5;
             var p1 = polarPoint(cx, cy, r - 3, angle);
             var p2 = polarPoint(cx, cy, r - 3 - tickLen, angle);
             dc.setPenWidth(isMajor ? 3 : 1);
             dc.drawLine(p1[0], p1[1], p2[0], p2[1]);
 
             if (isMajor) {
-                var label = ((MAX_FTP_PERCENT * i) / 20);
+                var label = percent;
                 var lp = polarPoint(cx, cy, r - 31, angle);
                 dc.drawText(lp[0], lp[1] - 6, Graphics.FONT_XTINY,
                             label.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
             }
         }
 
-        var ftpAngle = START_ANGLE - (SWEEP_ANGLE * 0.5);
+        var ftpAngle = START_ANGLE - (SWEEP_ANGLE * _rideMath.fraction(100));
         var ftpA = polarPoint(cx, cy, r + 1, ftpAngle);
         var ftpB = polarPoint(cx, cy, r - 19, ftpAngle);
         dc.setPenWidth(5);
@@ -226,11 +276,10 @@ class AnalogPowerView extends WatchUi.DataField {
     }
 
     function drawNeedle(dc, cx, cy, r) {
-        var maxPower = _ftp * 2;
         var shown = _needlePower;
         if (shown < 0) { shown = 0; }
-        if (shown > maxPower) { shown = maxPower; }
-        var fraction = shown / maxPower.toFloat();
+        var percent = (shown * 100.0) / _ftp.toFloat();
+        var fraction = _rideMath.fraction(percent);
         var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
         var tip = polarPoint(cx, cy, r - 24, angle);
         var baseA = polarPoint(cx, cy, 5, angle + 90.0);
@@ -241,18 +290,15 @@ class AnalogPowerView extends WatchUi.DataField {
     }
 
     function fuelPercent() {
-        if (_fuelBudgetKj <= 0) { return 0; }
-        var usedKj = (_averagePower.toFloat() * _timerTime.toFloat()) / 1000000.0;
-        var remaining = 100.0 - ((usedKj / _fuelBudgetKj.toFloat()) * 100.0);
+        if (_fuelBudgetKj <= 0) { return 0.0; }
+        var remaining = (_reserveJoules / (_fuelBudgetKj * 1000.0)) * 100.0;
         if (remaining < 0) { remaining = 0; }
         if (remaining > 100) { remaining = 100; }
         return remaining;
     }
 
     function fuelRemainingKj() {
-        var remaining = (_fuelBudgetKj.toFloat() * fuelPercent()) / 100.0;
-        if (remaining < 0) { remaining = 0; }
-        return Math.floor(remaining);
+        return Math.floor(_reserveJoules / 1000.0);
     }
 
     function expectedHeartRate() {
@@ -275,13 +321,18 @@ class AnalogPowerView extends WatchUi.DataField {
         dc.drawText(cx, y, Graphics.FONT_XTINY,
                     "HR " + hrText + " " + deltaText + "   P " + powerPercent.format("%d") + "%   E " + _effortScore.format("%d"),
                     Graphics.TEXT_JUSTIFY_CENTER);
+        if (_remoteTargetHigh > 0) {
+            dc.drawText(cx, y + 11, Graphics.FONT_XTINY,
+                        "T " + _remoteTargetLow.format("%d") + "-" + _remoteTargetHigh.format("%d") + "  " + _remoteRisk + " " + _remoteConfidence.format("%d") + "%",
+                        Graphics.TEXT_JUSTIFY_CENTER);
+        }
     }
 
     function drawFuelGauge(dc, x, y, width, height) {
         var percent = fuelPercent();
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.drawText(x + (width / 2), y - 1, Graphics.FONT_XTINY,
-                    "FUEL " + percent.format("%d") + "%  " + fuelRemainingKj().format("%d") + "kJ",
+                    "RES " + percent.format("%d") + "%  " + fuelRemainingKj().format("%d") + "kJ",
                     Graphics.TEXT_JUSTIFY_CENTER);
         var barY = y + 15;
         var segments = 20;
@@ -308,7 +359,7 @@ class AnalogPowerView extends WatchUi.DataField {
         dc.drawText(cx, 2, Graphics.FONT_NUMBER_MILD,
                     powerText, Graphics.TEXT_JUSTIFY_CENTER);
         dc.drawText(cx, h - 18, Graphics.FONT_XTINY,
-                    _feedback + "  " + fuelPercent().format("%d") + "%",
+                    ((_remoteCue != null) ? _remoteCue : _feedback) + "  " + fuelPercent().format("%d") + "%",
                     Graphics.TEXT_JUSTIFY_CENTER);
     }
 

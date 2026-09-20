@@ -1,6 +1,6 @@
 <properties>
     <property id="ftpWatts" type="number">250</property>
-    <property id="fuelBudgetKj" type="number">1200</property>
+    <property id="fuelBudgetKj" type="number">25</property>
     <property id="restingHeartRate" type="number">60</property>
     <property id="thresholdHeartRate" type="number">170</property>
     <property id="maxHeartRate" type="number">190</property>

@@ -10,13 +10,16 @@ This repository preserves Thomas's existing app source, application ID, resource
 
 ## Features
 
-- 240-degree rev-counter dial scaled from 0–200% of the rider's FTP.
+- 240-degree nonlinear rev-counter dial from 0–400% of FTP, with extra space around the most useful riding range.
 - Damped needle with a large live watt readout and a marked FTP redline.
 - Check-engine-style warning lamp that fills when live power exceeds FTP.
-- Twenty-segment fuel meter with exact remaining percentage and mechanical work in kJ.
+- Twenty-segment hard-effort reserve that drains above FTP and gradually recovers below FTP.
 - Live HR-versus-power comparison, 0–100 exertion score, and short cues such as `HOLD`, `EASE OFF`, `HR DRIFT`, and `FUEL LOW`.
 - FTP, fuel, and heart-rate model settings editable through Garmin Connect Mobile.
 - Secure companion service that learns a cumulative rider profile from the complete Garmin Connect activity history through OAuth 2.0.
+- Live numerical coaching from power, HR, cadence, temperature, reserve, sleep, and night-shift context, with occasional AI cues on meaningful changes.
+- Local desktop dashboard for schedule, recovery context, learned profile, and AI training advice.
+- Background phone-message receiver for compact live targets, risk, confidence, and cues on the Edge.
 - Compact watt and fuel display for shorter data-field layouts.
 
 ## Project layout
