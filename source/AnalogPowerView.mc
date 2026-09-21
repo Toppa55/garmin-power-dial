@@ -192,10 +192,17 @@ class AnalogPowerView extends WatchUi.DataField {
         var w = dc.getWidth();
         var h = dc.getHeight();
         var cx = w / 2;
-        var cy = (h * 39) / 100;
-        var r = (w * 41) / 100;
+        var cy = (h * 40) / 100;
+        var r = (w * 35) / 100;
+        var tinyHeight = dc.getFontHeight(Graphics.FONT_XTINY);
+        var barY = h - 20;
+        var reserveY = barY - tinyHeight - 6;
+        var remoteY = reserveY - tinyHeight - 5;
+        var metricsY = remoteY - tinyHeight - 5;
+        var subtitleY = metricsY - tinyHeight - 4;
+        var powerY = subtitleY - dc.getFontHeight(Graphics.FONT_NUMBER_MILD) + 3;
 
-        drawCheckEngine(dc, cx, 5);
+        drawCheckEngine(dc, cx, 3);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.setPenWidth(3);
         dc.drawArc(cx, cy, r, Graphics.ARC_CLOCKWISE, 210, 330);
@@ -211,48 +218,41 @@ class AnalogPowerView extends WatchUi.DataField {
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
 
         var powerText = _hasPower ? _power.format("%d") : "--";
-        dc.drawText(cx, cy + 17, Graphics.FONT_NUMBER_HOT,
+        dc.drawText(cx, powerY, Graphics.FONT_NUMBER_MILD,
                     powerText, Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(cx, cy + 17 + dc.getFontHeight(Graphics.FONT_NUMBER_HOT) - 2,
-                    Graphics.FONT_XTINY, "W  /  FTP " + _ftp.format("%d"),
+        dc.drawText(cx, subtitleY, Graphics.FONT_XTINY,
+                    "W     FTP " + _ftp.format("%d"),
                     Graphics.TEXT_JUSTIFY_CENTER);
 
-        drawLiveMetrics(dc, cx, h - 91);
-        drawFuelGauge(dc, 14, h - 59, w - 28, 45);
+        drawLiveMetrics(dc, cx, metricsY, remoteY);
+        drawFuelGauge(dc, 14, reserveY, w - 28, barY);
     }
 
     function drawCheckEngine(dc, cx, y) {
         var isHot = _hasPower && (_power > _ftp);
-        var x = cx - 42;
+        var x = cx - 50;
         var label = isHot ? "FTP!" : ((_remoteCue != null) ? _remoteCue : _feedback);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.setPenWidth(2);
+        dc.setPenWidth(1);
         if (isHot) {
-            dc.fillRectangle(x, y + 4, 84, 22);
-            dc.fillRectangle(x + 8, y, 20, 4);
-            dc.fillRectangle(x + 84, y + 10, 5, 9);
+            dc.fillRectangle(x, y, 100, 21);
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_BLACK);
         } else {
-            dc.drawRectangle(x, y + 4, 84, 22);
-            dc.drawLine(x + 8, y + 4, x + 8, y);
-            dc.drawLine(x + 8, y, x + 28, y);
-            dc.drawLine(x + 84, y + 10, x + 89, y + 10);
-            dc.drawLine(x + 89, y + 10, x + 89, y + 19);
-            dc.drawLine(x + 89, y + 19, x + 84, y + 19);
+            dc.drawRectangle(x, y, 100, 21);
         }
-        dc.drawText(cx, y + 6, Graphics.FONT_XTINY,
+        dc.drawText(cx, y + 2, Graphics.FONT_XTINY,
                     label, Graphics.TEXT_JUSTIFY_CENTER);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
     }
 
     function drawTicksAndLabels(dc, cx, cy, r) {
-        var labelValues = [0, 50, 80, 100, 120, 150, 200, 300, 400];
-        for (var i = 0; i <= 40; i += 1) {
-            var percent = i * 10;
+        var labelValues = [0, 80, 100, 150, 400];
+        for (var i = 0; i <= 21; i += 1) {
+            var percent = (i == 21) ? 150 : (i * 20);
             var fraction = _rideMath.fraction(percent);
             var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
             var isMajor = (labelValues.indexOf(percent) >= 0);
-            var tickLen = isMajor ? 14 : 5;
+            var tickLen = isMajor ? 11 : 5;
             var p1 = polarPoint(cx, cy, r - 3, angle);
             var p2 = polarPoint(cx, cy, r - 3 - tickLen, angle);
             dc.setPenWidth(isMajor ? 3 : 1);
@@ -260,8 +260,8 @@ class AnalogPowerView extends WatchUi.DataField {
 
             if (isMajor) {
                 var label = percent;
-                var lp = polarPoint(cx, cy, r - 31, angle);
-                dc.drawText(lp[0], lp[1] - 6, Graphics.FONT_XTINY,
+                var lp = polarPoint(cx, cy, r - 28, angle);
+                dc.drawText(lp[0], lp[1] - 7, Graphics.FONT_XTINY,
                             label.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
             }
         }
@@ -271,8 +271,6 @@ class AnalogPowerView extends WatchUi.DataField {
         var ftpB = polarPoint(cx, cy, r - 19, ftpAngle);
         dc.setPenWidth(5);
         dc.drawLine(ftpA[0], ftpA[1], ftpB[0], ftpB[1]);
-        dc.drawText(cx, cy - r + 18, Graphics.FONT_XTINY,
-                    "% FTP", Graphics.TEXT_JUSTIFY_CENTER);
     }
 
     function drawNeedle(dc, cx, cy, r) {
@@ -309,7 +307,7 @@ class AnalogPowerView extends WatchUi.DataField {
         return Math.floor(_restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * powerLoad) / 100.0));
     }
 
-    function drawLiveMetrics(dc, cx, y) {
+    function drawLiveMetrics(dc, cx, y, remoteY) {
         var powerPercent = (_ftp > 0) ? ((_power * 100) / _ftp) : 0;
         var hrText = (_heartRate > 0) ? _heartRate.format("%d") : "--";
         var deltaText = "";
@@ -322,30 +320,28 @@ class AnalogPowerView extends WatchUi.DataField {
                     "HR " + hrText + " " + deltaText + "   P " + powerPercent.format("%d") + "%   E " + _effortScore.format("%d"),
                     Graphics.TEXT_JUSTIFY_CENTER);
         if (_remoteTargetHigh > 0) {
-            dc.drawText(cx, y + 11, Graphics.FONT_XTINY,
+            dc.drawText(cx, remoteY, Graphics.FONT_XTINY,
                         "T " + _remoteTargetLow.format("%d") + "-" + _remoteTargetHigh.format("%d") + "  " + _remoteRisk + " " + _remoteConfidence.format("%d") + "%",
                         Graphics.TEXT_JUSTIFY_CENTER);
         }
     }
 
-    function drawFuelGauge(dc, x, y, width, height) {
+    function drawFuelGauge(dc, x, y, width, barY) {
         var percent = fuelPercent();
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.drawText(x + (width / 2), y - 1, Graphics.FONT_XTINY,
+        dc.drawText(x + (width / 2), y, Graphics.FONT_XTINY,
                     "RES " + percent.format("%d") + "%  " + fuelRemainingKj().format("%d") + "kJ",
                     Graphics.TEXT_JUSTIFY_CENTER);
-        var barY = y + 15;
         var segments = 20;
-        var gap = 1;
-        var filled = Math.ceil(percent / 5.0);
+        var filled = Math.floor(percent / 5.0);
         for (var i = 0; i < segments; i += 1) {
             var segmentX = x + ((width * i) / segments);
-            var segmentRight = x + ((width * (i + 1)) / segments) - gap;
+            var segmentRight = x + ((width * (i + 1)) / segments) - 2;
             var segmentWidth = segmentRight - segmentX;
             dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-            dc.drawRectangle(segmentX, barY, segmentWidth, 16);
+            dc.drawRectangle(segmentX, barY, segmentWidth, 12);
             if (i < filled) {
-                dc.fillRectangle(segmentX + 2, barY + 2, segmentWidth - 3, 12);
+                dc.fillRectangle(segmentX + 2, barY + 2, segmentWidth - 3, 8);
             }
         }
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
