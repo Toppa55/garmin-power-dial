@@ -1,8 +1,12 @@
 <properties>
     <property id="ftpWatts" type="number">250</property>
+    <property id="totalFuelKj" type="number">1600</property>
     <property id="fuelBudgetKj" type="number">25</property>
     <property id="restingHeartRate" type="number">60</property>
     <property id="thresholdHeartRate" type="number">170</property>
     <property id="maxHeartRate" type="number">190</property>
     <property id="decouplingPercent" type="number">10</property>
+    <property id="bridgeUrl" type="string"></property>
+    <property id="bridgeToken" type="string"></property>
+    <property id="bridgeRiderId" type="string">thomas</property>
 </properties>

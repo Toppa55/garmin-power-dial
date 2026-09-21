@@ -1,9 +1,13 @@
 <strings>
     <string id="AppName">Analog Power Dial</string>
     <string id="FtpTitle">FTP (watts)</string>
+    <string id="TotalFuelTitle">Total fuel estimate (kJ)</string>
     <string id="FuelTitle">Hard-effort reserve (kJ)</string>
     <string id="RestingHrTitle">Resting heart rate</string>
     <string id="ThresholdHrTitle">Threshold heart rate</string>
     <string id="MaxHrTitle">Maximum heart rate</string>
     <string id="DecouplingTitle">HR drift warning (%)</string>
+    <string id="BridgeUrlTitle">AI bridge HTTPS URL</string>
+    <string id="BridgeTokenTitle">AI bridge token</string>
+    <string id="BridgeRiderTitle">AI rider ID</string>
 </strings>

@@ -30,4 +30,15 @@ class RideMath {
         if (next > capacity) { return capacity.toFloat(); }
         return next;
     }
+
+    // Mechanical-work-equivalent fuel estimate. Extra cost above FTP makes
+    // the slow tank sensitive to hard riding without treating it as glycogen.
+    function totalFuel(remainingKj, power, ftp, dt) {
+        if (dt <= 0 || dt > 3600 || ftp <= 0 || power <= 0) { return remainingKj; }
+        var excess = (power / ftp.toFloat()) - 0.8;
+        if (excess < 0) { excess = 0.0; }
+        var costKj = (power * dt / 1000.0) * (1.0 + (0.2 * excess));
+        var next = remainingKj - costKj;
+        return next > 0 ? next : 0.0;
+    }
 }

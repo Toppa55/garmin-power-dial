@@ -9,11 +9,11 @@ The OpenAI API runs only in the companion backend. Its key stays in `.env.local`
 3. The service securely stores the Garmin token, requests the complete cycling activity backfill, and normalizes every ride containing power data.
 4. Every ride contributes to cumulative duration, work, power, heart-rate, peak, and trend features. The service sends that complete-history summary plus the previous learned profile to the OpenAI Responses API using strict structured output and `store: false`.
 5. The new versioned profile contains FTP, hard-effort reserve, resting/threshold/max HR, and HR-drift sensitivity. It is stored under a hashed rider identifier.
-6. During a ride, the Edge applies the learned values locally once per second, so the dial, reserve, HR comparison, and fallback feedback continue without a phone or network connection.
+6. During a ride, the Edge applies the learned values locally once per second, so the power graph, total-fuel estimate, fast reserve, HR comparison, and fallback feedback continue without a phone or network connection.
 7. `POST /v1/garmin/sync` backfills Garmin Connect again and increments the learning revision after later rides.
 8. A phone companion can send live sensor state to `POST /v1/live/state`. The deterministic model always responds immediately; OpenAI is consulted only after a meaningful state change or cooldown.
-9. The phone forwards the compact response to the Connect IQ app. The Edge 130 Plus receives it through its supported background phone-message event.
-10. `POST /v1/live/complete` stores predicted-versus-reported effort so later profile revisions can learn prediction error.
+9. The Edge can make a background HTTPS request roughly every five minutes with its latest compact telemetry and receive a cue and updated profile, or a native iOS companion can forward compact responses through its supported phone-message event.
+10. `POST /v1/live/complete` stores predicted-versus-reported effort for future model refinement.
 
 Garmin Connect is the only historical-data source in this flow. USB files and direct Edge history are not imported.
 
@@ -21,25 +21,34 @@ Garmin Connect is the only historical-data source in this flow. USB files and di
 
 The Edge shows:
 
-- live watts on a nonlinear 0–400% FTP rev counter;
+- a horizontal watt graph marked 1–5 for 100–500 W;
 - current HR and its difference from the learned HR expected at that power;
-- live power as a percentage of FTP;
+- an FTP marker and current target range when the bridge is connected;
 - a 0–100 exertion score combining 60% power load and 40% heart-rate load;
 - one short cue: `PAIR HR`, `PUSH`, `STEADY`, `HOLD`, `HARD`, `EASE OFF`, `HR DRIFT`, or `FUEL LOW`;
-- exact hard-effort reserve percentage and remaining kJ over a 20-segment bar;
-- phone-delivered target watts, risk, confidence, drink/carbohydrate prompts, and a short AI cue when the live bridge is connected.
+- a slow total-fuel work estimate, and a separate fast hard-effort reserve that recovers below FTP;
+- GO AGAIN, RECOVER, or EASE OFF based on reserve, power, and HR;
+- bridge-delivered target watts, risk, and a short AI cue when connected.
 
 The cues are coaching estimates, not medical advice. The HR-drift cue waits 20 minutes and requires meaningful power before it can appear.
 
-## Live phone protocol
+The fuel estimate is mechanical-work-equivalent energy, not a measurement of glycogen. Its default budget is editable in Garmin settings and can be updated from a learned profile. Food intake is not automatically measured by the Edge.
 
-The phone samples independently paired BLE power, HR, cadence, and temperature sensors every few seconds and posts a compact packet:
+## iPhone web app and bridge limits
+
+START_PHONE_WEB.cmd makes the phone dashboard available on the same Wi-Fi as the PC. The iPhone opens /phone, enters its pairing token, and shows the latest Edge state or a manual AI check-in. It can be added to the Home Screen in Safari. A remote ride requires an HTTPS-hosted backend; a LAN-only PC URL is not reachable on the road.
+
+Set bridgeUrl in Garmin Connect IQ settings to the reachable https://.../v1/edge/poll endpoint, set bridgeToken to the companion token, and use the same bridgeRiderId as the phone dashboard. The Edge sends a small snapshot about every five minutes and receives a cue, target, FTP, and fuel calibration. Power, HR, and both bars remain second-by-second local calculations. Garmin enforces a minimum five-minute background interval; a web-only iPhone page cannot bypass it. The optional phone-message receiver remains ready for a future native iOS companion if faster AI cue delivery is needed.
+
+## Optional native phone protocol
+
+A future native iOS companion can sample independently paired BLE power, HR, cadence, and temperature sensors every few seconds and post a compact packet:
 
 ```json
 {"rider_id":"thomas","session_id":"ride-123","elapsed_seconds":900,"power_watts":245,"heart_rate_bpm":158,"cadence_rpm":91,"temperature_c":29,"reserve_percent":72,"carbs_grams":30,"sleep_hours":6.5,"night_shift":false}
 ```
 
-The response contains `cue`, `targetLow`, `targetHigh`, `risk`, `confidence`, HR prediction, fatigue, carbohydrate deficit, drink timer, and FTP. The native phone companion forwards the small camel-case fields to Garmin using the Connect IQ Mobile SDK. The backend never contacts the Edge directly.
+The response contains `cue`, `targetLow`, `targetHigh`, `risk`, `confidence`, HR prediction, fatigue, carbohydrate deficit, drink timer, and FTP. A native phone companion could forward the small camel-case fields to Garmin using the Connect IQ Mobile SDK. The web-only path instead uses the Edge's five-minute background HTTPS polling.
 
 The repository implements the server protocol and Garmin receiver. Packaging a native Android/iOS sensor bridge still requires the mobile platform SDKs, Connect IQ Mobile SDK registration, and app-store signing identities.
 

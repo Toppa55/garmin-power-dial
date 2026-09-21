@@ -11,9 +11,13 @@ import { loadJson, saveJson } from "./json-store.mjs";
 import { createPlan } from "./planner.mjs";
 
 const port = Number(process.env.PORT ?? 8787);
+const host = process.env.HOST ?? "127.0.0.1";
 const token = process.env.COMPANION_TOKEN;
 const pendingAuthorizations = new Map();
 const dashboardPath = fileURLToPath(new URL("../public/index.html", import.meta.url));
+const phonePath = fileURLToPath(new URL("../public/phone.html", import.meta.url));
+const manifestPath = fileURLToPath(new URL("../public/manifest.webmanifest", import.meta.url));
+const iconPath = fileURLToPath(new URL("../public/icon.svg", import.meta.url));
 
 function send(response, status, body) {
   response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -58,6 +62,21 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && url.pathname === "/") {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     response.end(await readFile(dashboardPath));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/phone") {
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    response.end(await readFile(phonePath));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/manifest.webmanifest") {
+    response.writeHead(200, { "Content-Type": "application/manifest+json", "Cache-Control": "no-store" });
+    response.end(await readFile(manifestPath));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/icon.svg") {
+    response.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" });
+    response.end(await readFile(iconPath));
     return;
   }
 
@@ -148,7 +167,29 @@ const server = createServer(async (request, response) => {
       const profile = await loadProfile(String(input.rider_id));
       const result = await coachLive(input, profile ?? {});
       await saveJson("live", `${input.rider_id}:${input.session_id ?? "ride"}`, { state: input, prediction: result });
+      await saveJson("latest", String(input.rider_id), { state: input, prediction: result });
       return send(response, 200, result);
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/edge/poll") {
+      const input = await readJson(request);
+      const profile = await loadProfile(String(input.rider_id));
+      const result = await coachLive(input, profile ?? {});
+      await saveJson("latest", String(input.rider_id), { state: input, prediction: result, source: "edge" });
+      return send(response, 200, {
+        cue: result.cue, targetLow: result.targetLow, targetHigh: result.targetHigh,
+        risk: result.risk, confidence: result.confidence, ftp: result.ftp,
+        reserveKj: result.reserveKj,
+        totalFuelKj: Number(profile?.ride_energy_budget_kj ?? 1600),
+        ttlSeconds: 360
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/v1/live/latest") {
+      const riderId = url.searchParams.get("rider_id");
+      if (!riderId) throw new Error("rider_id is required");
+      const latest = await loadJson("latest", riderId);
+      return latest ? send(response, 200, latest) : send(response, 404, { error: "No live ride state yet" });
     }
 
     if (request.method === "POST" && url.pathname === "/v1/live/complete") {
@@ -174,6 +215,6 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Companion calibration service listening on http://127.0.0.1:${port}`);
+server.listen(port, host, () => {
+  console.log(`Companion calibration service listening on http://${host}:${port}`);
 });

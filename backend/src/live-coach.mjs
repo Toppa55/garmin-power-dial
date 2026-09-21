@@ -29,6 +29,7 @@ export function validateLiveState(input) {
     cadence_rpm: clamp(number("cadence_rpm"), 0, 250),
     temperature_c: clamp(number("temperature_c", 20), -20, 60),
     reserve_percent: clamp(number("reserve_percent", 100), 0, 100),
+    fuel_percent: clamp(number("fuel_percent", 100), 0, 100),
     carbs_grams: clamp(number("carbs_grams"), 0, 500),
     sleep_hours: clamp(number("sleep_hours", 8), 0, 24),
     night_shift: Boolean(input.night_shift),
@@ -52,7 +53,7 @@ export function predictLive(state, profile = {}) {
   const target = Math.round(ftp * targetRatio);
   const targetLow = Math.round(target * 0.94);
   const targetHigh = Math.round(target * 1.06);
-  const risk = state.reserve_percent < 12 || hrDelta > 18 || fatigue > 85 ? "HIGH" : fatigue > 60 || hrDelta > 10 ? "MED" : "LOW";
+  const risk = state.fuel_percent < 10 || state.reserve_percent < 12 || hrDelta > 18 || fatigue > 85 ? "HIGH" : fatigue > 60 || hrDelta > 10 ? "MED" : "LOW";
   const confidence = Math.round(clamp(Number(profile.confidence ?? 0.45) * 100 - (state.heart_rate_bpm ? 0 : 20) - (state.cadence_rpm ? 0 : 5), 20, 98));
   const minutes = state.elapsed_seconds / 60;
   const carbRate = state.power_watts > ftp * 0.75 ? 70 : 45;
@@ -75,10 +76,14 @@ export async function coachLive(input, profile, options = {}) {
   const key = `${state.rider_id}:${state.session_id}`;
   const prior = sessions.get(key);
   const now = Date.now();
-  const meaningful = !prior || prior.prediction.risk !== prediction.risk || Math.abs(prior.prediction.hrDelta - prediction.hrDelta) >= 8 || now - prior.aiAt >= 60000;
+  const meaningful = !prior || prior.prediction.risk !== prediction.risk ||
+    Math.abs(prior.prediction.hrDelta - prediction.hrDelta) >= 8 ||
+    now - prior.attemptAt >= 60000;
   let reason = "Local prediction updated from live power, heart rate, reserve, heat, sleep, and shift context.";
   let aiUsed = false;
+  let attempted = false;
   if (meaningful && options.useAi !== false && (options.apiKey ?? process.env.OPENAI_API_KEY)) {
+    attempted = true;
     try {
       const ai = await openAiJson({
         instructions: "You are a conservative live cycling coach. Return one glanceable cue of at most 12 characters and a short reason. Use the numerical prediction and learned history. Never diagnose illness. Prefer HOLD, PUSH, EASE, DRINK, TAKE CARBS, COOL DOWN, or STOP SAFE.",
@@ -91,8 +96,12 @@ export async function coachLive(input, profile, options = {}) {
     } catch (error) {
       reason = `Offline fallback: ${error.message}`.slice(0, 160);
     }
+  } else if (prior?.aiUsed) {
+    prediction.cue = prior.prediction.cue;
+    reason = prior.reason;
+    aiUsed = true;
   }
-  sessions.set(key, { prediction, aiAt: aiUsed ? now : (prior?.aiAt ?? 0) });
+  sessions.set(key, { prediction, reason, aiUsed, attemptAt: attempted ? now : (prior?.attemptAt ?? now) });
   return { ...prediction, reason, aiUsed, at: state.timestamp };
 }
 

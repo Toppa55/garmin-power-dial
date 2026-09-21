@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="460" height="606" viewBox="0 0 230 303" role="img" aria-label="Illustrative three-bar Edge 130 Plus layout">
+  <rect width="230" height="303" fill="#fff"/>
+  <g fill="#111" font-family="Arial,sans-serif" text-anchor="middle">
+    <rect x="62" y="3" width="106" height="21" fill="none" stroke="#111"/>
+    <text x="115" y="18" font-size="13">HOLD</text>
+    <text x="115" y="50" font-size="24" font-weight="bold">245 W</text>
+    <rect x="13" y="59" width="204" height="18" fill="none" stroke="#111"/>
+    <rect x="15" y="61" width="98" height="14"/>
+    <g stroke="#fff" stroke-width="1"><path d="M54 61v14M95 61v14"/></g>
+    <path d="M136 61v14M176 61v14" stroke="#111"/>
+    <g font-size="11">
+      <text x="54" y="94">1</text><text x="95" y="94">2</text><text x="136" y="94">3</text><text x="176" y="94">4</text><text x="217" y="94">5</text>
+      <text x="115" y="122">HR 155  vs P +8   E 76</text>
+      <text x="115" y="141">T 220-250   LOW 78%</text>
+      <text x="115" y="174">FUEL EST 72%  1152kJ</text>
+      <text x="115" y="227">EFFORT RESERVE 64%</text>
+      <text x="115" y="289">RECOVER  16kJ</text>
+    </g>
+    <g stroke="#111">
+      <rect x="13" y="185" width="204" height="18" fill="none"/>
+      <rect x="15" y="187" width="145" height="14" fill="#111" stroke="none"/>
+      <rect x="13" y="239" width="204" height="18" fill="none"/>
+      <rect x="15" y="241" width="129" height="14" fill="#111" stroke="none"/>
+      <path d="M166 235v4M13 268h204"/>
+    </g>
+  </g>
+</svg>
