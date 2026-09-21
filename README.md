@@ -83,4 +83,6 @@ Only the Edge 130 Plus is declared in the manifest. No other Garmin devices are 
 
 ## AI calibration
 
-The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. Garmin Connect supplies completed ride history to the service after OAuth consent; the service aggregates every ride and updates a versioned rider profile. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard applies that learned profile offline to compare live HR and power every second.
+The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. An approved Garmin Connect Developer Program application can supply completed ride history after OAuth consent. For personal use, Garmin Connect's manual CSV export supplies ride summaries. The service aggregates powered cycling rides and updates a versioned rider profile. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard applies that learned profile offline to compare live HR and power every second.
+
+For personal use without an approved Garmin Connect Developer Program application, export activities as CSV from Garmin Connect on the web and import that file from the phone page. The import uses all powered cycling summaries in the file, skips other activities, and replaces the learned profile after each export. It is a manual Garmin Connect data export, not an automatic account connection. Garmin's official Activity API is limited to approved business use.

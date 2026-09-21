@@ -75,6 +75,14 @@
     </details>
   </section>
   <section class="card">
+    <details><summary>Learn from Garmin Connect rides</summary>
+      <p class="note">In Garmin Connect on a browser, open Activities → All Activities, load the full list, then choose Export CSV. Import that file here. This is a manual export, not an automatic account link.</p>
+      <label for="garminCsv">Garmin Connect activities CSV</label><input id="garminCsv" type="file" accept=".csv,text/csv">
+      <button class="secondary" id="importGarmin">Import rides</button>
+      <p class="note" id="importNote">Powered cycling rides will update your learned profile; other activities are skipped.</p>
+    </details>
+  </section>
+  <section class="card">
     <details><summary>Manual AI check-in</summary>
       <p class="note">Useful before or after a ride. Automatic Edge updates require the configured bridge.</p>
       <div class="grid">
@@ -179,6 +187,17 @@ async function uploadLive(){
 }
 $('pairPower').onclick=()=>pair('power');
 $('pairHr').onclick=()=>pair('hr');
+$('importGarmin').onclick=async()=>{
+  const file=$('garminCsv').files[0];
+  if(!connected){$('importNote').textContent='Connect this phone with its pairing token first.';return;}
+  if(!file){$('importNote').textContent='Choose the CSV file exported from Garmin Connect first.';return;}
+  $('importNote').textContent='Learning from your rides…';
+  try{
+    profile=await api('/v1/garmin/import-csv','POST',{rider_id:$('rider').value,csv:await file.text()});
+    $('importNote').textContent=`Profile updated from ${profile.rides_imported} powered cycling rides. ${profile.rides_skipped} activities were skipped.`;
+    if(sensorAt.power)displayLive();
+  }catch(error){$('importNote').textContent='Import failed: '+error.message;}
+};
 setInterval(()=>{
   const now=Date.now(),dt=(now-lastTick)/1000;lastTick=now;
   if(sensorAt.power){

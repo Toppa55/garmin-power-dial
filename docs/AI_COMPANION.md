@@ -62,6 +62,10 @@ Open `http://127.0.0.1:8787` after starting the backend. The dashboard saves sle
 
 Garmin's Activity API requires an approved Garmin Connect Developer Program application. The public documentation confirms OAuth 2.0, user consent, activity backfill, FIT details, and push or pull integration, but the assigned authorization, token, and activity URLs are provided through the approved developer portal.
 
+For a personal rider without that approval, Garmin Connect's **Activities → All Activities → Export CSV** supplies a manual history route. Load the complete activity list before exporting, then choose the CSV file in the phone page's **Learn from Garmin Connect rides** section. `POST /v1/garmin/import-csv` reads all powered cycling summaries in the file, reports skipped rows, and updates the learned profile. The file comes from Garmin Connect, not the Edge's USB storage. Re-export and import after later rides to refresh the profile. This summary export does not include the full second-by-second ride trace, and it is not automatic syncing.
+
+Strava's 2026 API Policy prohibits using ordinary Strava API data or derived summaries to operate an AI application, so the app must not feed Strava API activities into the learning service. Strava exempts its own personal-use MCP connector, but Ride Brain has no access to that connector today.
+
 Configure these values from that portal:
 
 ```dotenv
