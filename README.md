@@ -4,9 +4,9 @@ A monochrome three-bar cycling dashboard for the **Garmin Edge 130 Plus**, writt
 
 This repository preserves the existing app identity, resources, and Windows build/install helpers while evolving the ride dashboard.
 
-![Original design preview](PREVIEW.png)
+![Illustrative three-bar layout](docs/THREE_BAR_PREVIEW.svg)
 
-*Original project preview; not a screenshot of a validation run.*
+*Illustrative layout; physical device screenshot still needed.*
 
 ## Features
 
