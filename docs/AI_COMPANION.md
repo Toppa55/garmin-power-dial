@@ -64,6 +64,8 @@ Garmin's Activity API requires an approved Garmin Connect Developer Program appl
 
 For a personal rider without that approval, Garmin Connect's **Activities → All Activities → Export CSV** supplies a manual history route. Load the complete activity list before exporting, then choose the CSV file in the phone page's **Learn from Garmin Connect rides** section. `POST /v1/garmin/import-csv` reads all powered cycling summaries in the file, reports skipped rows, and updates the learned profile. The file comes from Garmin Connect, not the Edge's USB storage. Re-export and import after later rides to refresh the profile. This summary export does not include the full second-by-second ride trace, and it is not automatic syncing.
 
+Alternatively, for a connected Edge 130 Plus, run `node --env-file=../.env.local scripts/import-edge-rides.mjs E:/GARMIN/Activity <rider-id>` from `backend`, using the actual drive letter. The script uses Garmin's FIT SDK to read cycling power and heart-rate sessions, computes normalized power from recorded power samples, and updates the same rider profile without modifying the device. It never forwards GPS coordinates to the AI service. Only rides currently stored on the Edge are included; use the Garmin Connect export for a longer history.
+
 Strava's 2026 API Policy prohibits using ordinary Strava API data or derived summaries to operate an AI application, so the app must not feed Strava API activities into the learning service. Strava exempts its own personal-use MCP connector, but Ride Brain has no access to that connector today.
 
 Configure these values from that portal:

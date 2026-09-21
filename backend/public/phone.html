@@ -143,7 +143,11 @@ $('connect').onclick=async()=>{
   localStorage.setItem('rideBrainToken',$('token').value);
   connected=true;
   live.rider_id=$('rider').value;
-  try{profile=await api('/v1/profile?rider_id='+encodeURIComponent(live.rider_id));}
+  try{
+    profile=await api('/v1/profile?rider_id='+encodeURIComponent(live.rider_id));
+    const source=profile.source==='edge_fit_usb'?'Edge ride files':profile.source==='garmin_connect_csv'?'Garmin Connect export':'ride history';
+    $('connectionNote').textContent=`Connected. Learned from ${profile.rides_analyzed||profile.rides_imported||0} rides via ${source}.`;
+  }
   catch{ $('connectionNote').textContent='Connected. Garmin history is not synced yet, so fuel and HR targets use starter estimates.'; }
   await refresh();
 };

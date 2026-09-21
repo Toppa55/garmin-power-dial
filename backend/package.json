@@ -8,5 +8,8 @@
   },
   "engines": {
     "node": ">=20.6"
+  },
+  "dependencies": {
+    "@garmin/fitsdk": "^21.214.0"
   }
 }
