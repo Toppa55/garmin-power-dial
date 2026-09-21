@@ -49,6 +49,7 @@ $Prg = Join-Path $BuildDir "AnalogPowerDial.prg"
 $KeyCandidates = @(
     $env:GARMIN_DEVELOPER_KEY,
     (Join-Path $ProjectDir "developer_key.der"),
+    (Join-Path $env:USERPROFILE "Documents\Garmin Connect IQ\Keys\garmin-power-dial-developer-key.der"),
     (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Garmin Connect IQ\Keys\garmin-power-dial-developer-key.der")
 ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
 $Key = $KeyCandidates | Select-Object -First 1
