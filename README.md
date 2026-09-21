@@ -1,8 +1,8 @@
 # Garmin Power Dial
 
-A monochrome rev-counter cycling power dashboard for the **Garmin Edge 130 Plus**, written in Monkey C for Garmin Connect IQ.
+A monochrome three-bar cycling dashboard for the **Garmin Edge 130 Plus**, written in Monkey C for Garmin Connect IQ.
 
-This repository preserves Thomas's existing app source, application ID, resources, and Windows build/install helpers. The initial import changes project documentation and repository housekeeping, not the app's behaviour.
+This repository preserves the existing app identity, resources, and Windows build/install helpers while evolving the ride dashboard.
 
 ![Original design preview](PREVIEW.png)
 
@@ -10,16 +10,16 @@ This repository preserves Thomas's existing app source, application ID, resource
 
 ## Features
 
-- 240-degree nonlinear rev-counter dial from 0–400% of FTP, with extra space around the most useful riding range.
-- Damped needle with a large live watt readout and a marked FTP redline.
-- Check-engine-style warning lamp that fills when live power exceeds FTP.
-- Twenty-segment hard-effort reserve that drains above FTP and gradually recovers below FTP.
+- Horizontal power graph marked 1–5 for 100–500 W, with a live watt readout and FTP marker.
+- Slow total-fuel estimate that falls with accumulated power output and effort.
+- Fast hard-effort reserve that drains above FTP and recovers below it, with go-again/recover/ease-off guidance.
 - Live HR-versus-power comparison, 0–100 exertion score, and short cues such as `HOLD`, `EASE OFF`, `HR DRIFT`, and `FUEL LOW`.
 - FTP, fuel, and heart-rate model settings editable through Garmin Connect Mobile.
 - Secure companion service that learns a cumulative rider profile from the complete Garmin Connect activity history through OAuth 2.0.
 - Live numerical coaching from power, HR, cadence, temperature, reserve, sleep, and night-shift context, with occasional AI cues on meaningful changes.
 - Local desktop dashboard for schedule, recovery context, learned profile, and AI training advice.
-- Background phone-message receiver for compact live targets, risk, confidence, and cues on the Edge.
+- Background phone-message receiver plus a five-minute web polling path for compact AI targets and cues on the Edge.
+- iPhone-friendly web app that displays the three graphs and live coaching state.
 - Compact watt and fuel display for shorter data-field layouts.
 
 ## Project layout
@@ -59,7 +59,13 @@ For the existing one-click Windows workflow, place your signing key at `develope
 
 The helper builds the app and copies it to the first detected drive containing `GARMIN/APPS`, replacing an existing `AnalogPowerDial.prg` there. Connect only the intended Garmin device. If no device is found, it leaves the compiled file in `build/` for manual copying.
 
-After copying, safely eject/disconnect the Edge and add **Analog Power Dial** as a Connect IQ field on a cycling data screen. Use a tall field layout to see the full dial. Power readings require an appropriate power source supplying activity power data.
+After copying, safely eject/disconnect the Edge and add **Analog Power Dial** as a Connect IQ field on a cycling data screen. Use a full-height field layout to see all three bars. Power readings require an appropriate power source supplying activity power data.
+
+## iPhone web app
+
+Double-click START_PHONE_WEB.cmd on the PC. It prints a same-Wi-Fi URL and the private pairing token for the iPhone. Open the URL in Safari and use Share → Add to Home Screen if you want an app icon. The PC must stay on and the iPhone must remain on that Wi-Fi for this local setup.
+
+The Edge calculates live power, HR comparison, fuel, and effort reserve every second. Its optional web AI bridge uses Garmin's five-minute background interval and requires a reachable HTTPS backend URL and token in the Garmin settings. An iPhone browser alone cannot send Garmin Connect IQ phone messages or read BLE cycling sensors through Safari; faster AI delivery requires a native iOS companion using Garmin's Mobile SDK.
 
 ## Making changes
 

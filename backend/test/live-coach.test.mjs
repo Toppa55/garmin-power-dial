@@ -18,3 +18,31 @@ test("keeps useful deterministic feedback when AI is unavailable", async () => {
   assert.ok(["PUSH", "HOLD", "EASE", "DRINK", "TAKE CARBS", "EASE OFF"].includes(result.cue));
   assert.equal(typeof result.confidence, "number");
 });
+
+test("treats a low total-fuel estimate as a high-risk signal", () => {
+  const state = validateLiveState({
+    rider_id: "fuel-test", power_watts: 150, heart_rate_bpm: 120,
+    reserve_percent: 90, fuel_percent: 8
+  });
+  assert.equal(predictLive(state, profile).risk, "HIGH");
+});
+
+test("does not call OpenAI for unchanged packets in one ride", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return {
+      ok: true,
+      json: async () => ({ output: [{ content: [{ type: "output_text", text: JSON.stringify({
+        cue: "HOLD", reason: "The rider is steady."
+      }) }] }] })
+    };
+  };
+  const packet = {
+    rider_id: "cooldown-test", session_id: "ride-1", power_watts: 200,
+    heart_rate_bpm: 140, reserve_percent: 80, fuel_percent: 80
+  };
+  await coachLive(packet, profile, { apiKey: "test-key", fetchImpl });
+  await coachLive(packet, profile, { apiKey: "test-key", fetchImpl });
+  assert.equal(calls, 1);
+});

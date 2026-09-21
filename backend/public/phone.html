@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1116">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <title>Ride Brain</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1116;color:#f6f9f8}
+    *{box-sizing:border-box}body{margin:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+    main{max-width:540px;margin:auto;padding:20px 18px 44px}
+    header{display:flex;align-items:center;justify-content:space-between;margin:8px 0 24px}
+    h1{font-size:30px;letter-spacing:-.05em;margin:0}h2{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:#a9b7b9;margin:0 0 10px}
+    p{line-height:1.45}.tag{font-size:12px;font-weight:700;letter-spacing:.08em;padding:7px 10px;border:1px solid #46646a;border-radius:99px;color:#bde4e1}
+    .card{background:#152028;border:1px solid #2b3c44;border-radius:20px;padding:18px;margin-bottom:14px}
+    .hero{padding:22px 18px}.cue{font-size:34px;font-weight:800;line-height:1.05;letter-spacing:-.045em;color:#d4fa43}
+    .sub{color:#a9b7b9;font-size:13px;margin:8px 0 0}.row{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+    .value{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}.unit{font-size:12px;color:#a9b7b9;font-weight:600}
+    .track{height:17px;background:#26343a;border-radius:5px;position:relative;overflow:hidden;margin:13px 0 7px}
+    .fill{height:100%;width:0;border-radius:5px;transition:width .35s ease;background:#d4fa43}
+    .fuel .fill{background:#71d6cc}.reserve .fill{background:#f3986b}
+    .ticks{display:flex;justify-content:space-between;color:#9aacaf;font-size:12px;font-variant-numeric:tabular-nums}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.mini{background:#1c2b32;padding:13px;border-radius:12px}
+    .mini strong{font-size:22px;display:block}.mini span{font-size:12px;color:#9aacaf}
+    label{display:block;font-size:12px;color:#b7c5c8;margin:14px 0 5px}
+    input,button{font:inherit;border-radius:10px;padding:12px;width:100%}
+    input{background:#0e181e;border:1px solid #42575e;color:white}
+    button{background:#d4fa43;border:0;color:#102016;font-weight:800;margin-top:15px}
+    button.secondary{background:#263941;color:#f6f9f8}
+    details summary{cursor:pointer;font-weight:700}.note{font-size:12px;color:#9aacaf}
+    .alert{color:#f9b390}.hidden{display:none}
+  </style>
+</head>
+<body><main>
+  <header><h1>Ride Brain</h1><span class="tag" id="status">WAITING</span></header>
+  <section class="card hero"><div class="cue" id="cue">Waiting for ride</div><p class="sub" id="cueDetail">Connect your account below to see the latest ride state.</p></section>
+  <section class="card">
+    <div class="row"><h2>Power</h2><div><span class="value" id="power">--</span><span class="unit"> W</span></div></div>
+    <div class="track"><div class="fill" id="powerFill"></div></div>
+    <div class="ticks"><span>0</span><span>1 · 100</span><span>2 · 200</span><span>3 · 300</span><span>4 · 400</span><span>5 · 500</span></div>
+  </section>
+  <section class="card fuel">
+    <div class="row"><h2>Total fuel estimate</h2><div><span class="value" id="fuel">--</span><span class="unit"> %</span></div></div>
+    <div class="track"><div class="fill" id="fuelFill"></div></div>
+    <p class="note">Slow work-based estimate. Food intake and personal physiology can change the real amount available.</p>
+  </section>
+  <section class="card reserve">
+    <div class="row"><h2>Effort reserve</h2><div><span class="value" id="reserve">--</span><span class="unit"> %</span></div></div>
+    <div class="track"><div class="fill" id="reserveFill"></div></div>
+    <p class="note" id="readiness">Hard efforts drain this bar. Easier riding refills it.</p>
+  </section>
+  <section class="card grid">
+    <div class="mini"><strong id="heartRate">--</strong><span>Heart rate · bpm</span></div>
+    <div class="mini"><strong id="target">--</strong><span>Target · watts</span></div>
+    <div class="mini"><strong id="risk">--</strong><span>Risk</span></div>
+    <div class="mini"><strong id="updated">--</strong><span>Last update</span></div>
+  </section>
+  <section class="card">
+    <details open><summary>Connect this phone</summary>
+      <label for="rider">Rider ID</label><input id="rider" autocomplete="username" value="thomas">
+      <label for="token">Companion pairing token</label><input id="token" type="password" autocomplete="off">
+      <button id="connect">Connect</button>
+      <p class="note" id="connectionNote">For the same Wi-Fi, open this page using the computer's LAN address. A remote ride needs an HTTPS-hosted companion service.</p>
+    </details>
+  </section>
+  <section class="card">
+    <details><summary>Manual AI check-in</summary>
+      <p class="note">Useful before or after a ride. Automatic Edge updates require the configured bridge.</p>
+      <div class="grid">
+        <div><label for="manualPower">Power · W</label><input id="manualPower" type="number" min="0" max="2000" value="200"></div>
+        <div><label for="manualHr">Heart rate</label><input id="manualHr" type="number" min="0" max="250" value="140"></div>
+      </div>
+      <button class="secondary" id="checkin">Ask AI</button>
+    </details>
+  </section>
+  <p class="note">On the Edge, power and both fuel bars update locally every second. Web-only AI polling can update the Edge about every five minutes; an iOS native bridge is needed for faster delivery.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id),pct=n=>Math.max(0,Math.min(100,Number(n)||0));
+let connected=false;
+$('rider').value=localStorage.getItem('rideBrainRider')||'thomas';
+$('token').value=localStorage.getItem('rideBrainToken')||'';
+async function api(path,method='GET',body){
+  const headers={Authorization:'Bearer '+$('token').value,'Content-Type':'application/json'};
+  const response=await fetch(path,{method,headers,body:body?JSON.stringify(body):undefined,cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'Connection failed');
+  return data;
+}
+function render(record){
+  const s=record.state||{},p=record.prediction||{};
+  $('cue').textContent=p.cue||'LOCAL ONLY';
+  $('cueDetail').textContent=p.reason||'The Edge keeps updating even without AI.';
+  $('power').textContent=s.power_watts??'--';
+  $('powerFill').style.width=pct((s.power_watts||0)/5)+'%';
+  $('fuel').textContent=s.fuel_percent??'--';
+  $('fuelFill').style.width=pct(s.fuel_percent)+'%';
+  $('reserve').textContent=s.reserve_percent??'--';
+  $('reserveFill').style.width=pct(s.reserve_percent)+'%';
+  $('heartRate').textContent=s.heart_rate_bpm??'--';
+  $('target').textContent=p.targetLow&&p.targetHigh?p.targetLow+'–'+p.targetHigh:'--';
+  $('risk').textContent=p.risk||'--';
+  const age=Date.now()-new Date(record.updated_at||p.at||0).getTime();
+  $('updated').textContent=age<60000?'Just now':Math.round(age/60000)+' min ago';
+  $('readiness').textContent=(s.reserve_percent>=75&&p.risk!=='HIGH')?'GO AGAIN: ample reserve':(s.reserve_percent<25?'EASE OFF: reserve low':'RECOVER: ride easier until the bar refills');
+  $('status').textContent=age>10*60000?'STALE':(p.aiUsed?'AI LIVE':'LOCAL MODEL');
+}
+async function refresh(){
+  if(!connected)return;
+  try{render(await api('/v1/live/latest?rider_id='+encodeURIComponent($('rider').value)));}
+  catch(error){$('status').textContent='WAITING';$('connectionNote').textContent=error.message;}
+}
+$('connect').onclick=async()=>{
+  localStorage.setItem('rideBrainRider',$('rider').value);
+  localStorage.setItem('rideBrainToken',$('token').value);
+  connected=true;
+  await refresh();
+};
+$('checkin').onclick=async()=>{
+  try{
+    const result=await api('/v1/live/state','POST',{
+      rider_id:$('rider').value,session_id:'phone-checkin',elapsed_seconds:0,
+      power_watts:Number($('manualPower').value),heart_rate_bpm:Number($('manualHr').value),
+      reserve_percent:100,fuel_percent:100
+    });
+    render({state:{power_watts:Number($('manualPower').value),heart_rate_bpm:Number($('manualHr').value),reserve_percent:100,fuel_percent:100},prediction:result,updated_at:new Date().toISOString()});
+    $('status').textContent='CHECK-IN';
+  }catch(error){$('connectionNote').textContent=error.message;}
+};
+setInterval(refresh,5000);
+if($('token').value){connected=true;refresh();}
+</script></body></html>

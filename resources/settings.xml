@@ -2,8 +2,11 @@
     <setting propertyKey="@Properties.ftpWatts" title="@Strings.FtpTitle">
         <settingConfig type="numeric" min="50" max="600" />
     </setting>
-    <setting propertyKey="@Properties.fuelBudgetKj" title="@Strings.FuelTitle">
+    <setting propertyKey="@Properties.totalFuelKj" title="@Strings.TotalFuelTitle">
         <settingConfig type="numeric" min="100" max="10000" />
+    </setting>
+    <setting propertyKey="@Properties.fuelBudgetKj" title="@Strings.FuelTitle">
+        <settingConfig type="numeric" min="5" max="200" />
     </setting>
     <setting propertyKey="@Properties.restingHeartRate" title="@Strings.RestingHrTitle">
         <settingConfig type="numeric" min="30" max="120" />
@@ -16,5 +19,14 @@
     </setting>
     <setting propertyKey="@Properties.decouplingPercent" title="@Strings.DecouplingTitle">
         <settingConfig type="numeric" min="3" max="30" />
+    </setting>
+    <setting propertyKey="@Properties.bridgeUrl" title="@Strings.BridgeUrlTitle">
+        <settingConfig type="url" />
+    </setting>
+    <setting propertyKey="@Properties.bridgeToken" title="@Strings.BridgeTokenTitle">
+        <settingConfig type="password" />
+    </setting>
+    <setting propertyKey="@Properties.bridgeRiderId" title="@Strings.BridgeRiderTitle">
+        <settingConfig type="alphaNumeric" />
     </setting>
 </settings>

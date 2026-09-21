@@ -1,0 +1,12 @@
+{
+  "name": "Ride Brain",
+  "short_name": "Ride Brain",
+  "start_url": "/phone",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1116",
+  "theme_color": "#0b1116",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

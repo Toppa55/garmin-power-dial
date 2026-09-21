@@ -1,13 +1,13 @@
 using Toybox.Application;
 using Toybox.Graphics;
-using Toybox.Math;
 using Toybox.Lang;
+using Toybox.Math;
+using Toybox.Time;
 using Toybox.WatchUi;
 
 class AnalogPowerView extends WatchUi.DataField {
-    const START_ANGLE = 210.0;
-    const SWEEP_ANGLE = 240.0;
     const DEFAULT_FTP = 250;
+    const DEFAULT_TOTAL_FUEL_KJ = 1600;
     const DEFAULT_RESERVE_KJ = 25;
     const DEFAULT_RECOVERY_SECONDS = 300;
     const DEFAULT_RESTING_HR = 60;
@@ -16,17 +16,17 @@ class AnalogPowerView extends WatchUi.DataField {
     const DEFAULT_DECOUPLING = 10;
 
     hidden var _power;
-    hidden var _needlePower;
-    hidden var _averagePower;
-    hidden var _heartRate;
-    hidden var _averageHeartRate;
-    hidden var _timerTime;
     hidden var _hasPower;
-    hidden var _ftp;
-    hidden var _fuelBudgetKj;
-    hidden var _reserveJoules;
+    hidden var _heartRate;
+    hidden var _timerTime;
     hidden var _lastTimerTime;
-    hidden var _rideMath;
+    hidden var _lastStoredTimer;
+    hidden var _rideStartId;
+    hidden var _ftp;
+    hidden var _totalFuelBudgetKj;
+    hidden var _fuelKj;
+    hidden var _reserveCapacityKj;
+    hidden var _reserveJoules;
     hidden var _restingHeartRate;
     hidden var _thresholdHeartRate;
     hidden var _maxHeartRate;
@@ -38,78 +38,121 @@ class AnalogPowerView extends WatchUi.DataField {
     hidden var _remoteTargetHigh;
     hidden var _remoteRisk;
     hidden var _remoteConfidence;
+    hidden var _remoteUntil;
+    hidden var _rideMath;
 
     function initialize() {
         DataField.initialize();
         _power = 0;
-        _needlePower = 0.0;
-        _averagePower = 0;
-        _heartRate = 0;
-        _averageHeartRate = 0;
-        _timerTime = 0;
         _hasPower = false;
+        _heartRate = 0;
+        _timerTime = 0;
+        _lastTimerTime = 0;
+        _lastStoredTimer = -30000;
+        _rideStartId = Time.now().value();
         _effortScore = 0;
-        _feedback = "PAIR HR";
+        _feedback = "NO POWER";
         _remoteCue = null;
         _remoteTargetLow = 0;
         _remoteTargetHigh = 0;
         _remoteRisk = "";
         _remoteConfidence = 0;
-        _lastTimerTime = 0;
+        _remoteUntil = 0;
         _rideMath = new RideMath();
         loadCalibration();
-        _reserveJoules = _fuelBudgetKj * 1000.0;
+        _fuelKj = _totalFuelBudgetKj.toFloat();
+        _reserveJoules = _reserveCapacityKj * 1000.0;
+        var saved = Application.Storage.getValue("rideTelemetry");
+        if (saved instanceof Lang.Dictionary && saved.hasKey("at") &&
+            saved.hasKey("fuel_kj") && saved.hasKey("reserve_joules") &&
+            saved.hasKey("elapsed_seconds") &&
+            Time.now().value() >= saved["at"] &&
+            Time.now().value() - saved["at"] < 43200) {
+            _fuelKj = saved["fuel_kj"].toFloat();
+            _reserveJoules = saved["reserve_joules"].toFloat();
+            _lastTimerTime = saved["elapsed_seconds"].toNumber() * 1000;
+            _lastStoredTimer = _lastTimerTime;
+            if (saved.hasKey("ride_start")) { _rideStartId = saved["ride_start"].toNumber(); }
+        }
     }
 
     function loadCalibration() {
-        var configuredFtp = Application.Properties.getValue("ftpWatts");
-        var configuredFuel = Application.Properties.getValue("fuelBudgetKj");
-        var configuredRestingHr = Application.Properties.getValue("restingHeartRate");
-        var configuredThresholdHr = Application.Properties.getValue("thresholdHeartRate");
-        var configuredMaxHr = Application.Properties.getValue("maxHeartRate");
-        var configuredDecoupling = Application.Properties.getValue("decouplingPercent");
-        _ftp = (configuredFtp != null && configuredFtp > 0) ? configuredFtp : DEFAULT_FTP;
-        // Values above 200 kJ came from the previous total-work fuel model.
-        // Migrate those installs to a realistic hard-effort reserve.
-        _fuelBudgetKj = (configuredFuel != null && configuredFuel > 0 && configuredFuel <= 200) ? configuredFuel : DEFAULT_RESERVE_KJ;
-        _restingHeartRate = (configuredRestingHr != null && configuredRestingHr > 0) ? configuredRestingHr : DEFAULT_RESTING_HR;
-        _thresholdHeartRate = (configuredThresholdHr != null && configuredThresholdHr > _restingHeartRate) ? configuredThresholdHr : DEFAULT_THRESHOLD_HR;
-        _maxHeartRate = (configuredMaxHr != null && configuredMaxHr > _thresholdHeartRate) ? configuredMaxHr : DEFAULT_MAX_HR;
-        _decouplingPercent = (configuredDecoupling != null && configuredDecoupling > 0) ? configuredDecoupling : DEFAULT_DECOUPLING;
+        var ftp = Application.Properties.getValue("ftpWatts");
+        var totalFuel = Application.Properties.getValue("totalFuelKj");
+        var reserve = Application.Properties.getValue("fuelBudgetKj");
+        var resting = Application.Properties.getValue("restingHeartRate");
+        var threshold = Application.Properties.getValue("thresholdHeartRate");
+        var maximum = Application.Properties.getValue("maxHeartRate");
+        var decoupling = Application.Properties.getValue("decouplingPercent");
+        _ftp = (ftp != null && ftp > 0) ? ftp : DEFAULT_FTP;
+        _totalFuelBudgetKj = (totalFuel != null && totalFuel >= 100) ? totalFuel : DEFAULT_TOTAL_FUEL_KJ;
+        // Earlier versions used this setting for total ride work. Ignore those
+        // old values rather than creating a months-long fast reserve.
+        _reserveCapacityKj = (reserve != null && reserve > 0 && reserve <= 200) ? reserve : DEFAULT_RESERVE_KJ;
+        _restingHeartRate = (resting != null && resting > 0) ? resting : DEFAULT_RESTING_HR;
+        _thresholdHeartRate = (threshold != null && threshold > _restingHeartRate) ? threshold : DEFAULT_THRESHOLD_HR;
+        _maxHeartRate = (maximum != null && maximum > _thresholdHeartRate) ? maximum : DEFAULT_MAX_HR;
+        _decouplingPercent = (decoupling != null && decoupling > 0) ? decoupling : DEFAULT_DECOUPLING;
     }
 
     function compute(info) {
         loadCalibration();
-        if (info.currentPower != null) {
-            _power = info.currentPower;
-            _needlePower = _hasPower
-                ? ((_needlePower * 0.58) + (_power * 0.42))
-                : _power.toFloat();
-            _hasPower = true;
-        } else {
-            _power = 0;
-            _needlePower = _needlePower * 0.72;
-            _hasPower = false;
-        }
-
-        _averagePower = (info.averagePower != null) ? info.averagePower : 0;
+        _hasPower = info.currentPower != null;
+        _power = _hasPower ? info.currentPower : 0;
         _heartRate = (info.currentHeartRate != null) ? info.currentHeartRate : 0;
-        _averageHeartRate = (info.averageHeartRate != null) ? info.averageHeartRate : 0;
         var nextTimer = (info.timerTime != null) ? info.timerTime : 0;
         if (nextTimer < _lastTimerTime) {
-            _reserveJoules = _fuelBudgetKj * 1000.0;
+            _fuelKj = _totalFuelBudgetKj.toFloat();
+            _reserveJoules = _reserveCapacityKj * 1000.0;
+            _lastStoredTimer = -30000;
+            _rideStartId = Time.now().value();
         }
         var dt = (nextTimer - _lastTimerTime) / 1000.0;
-        _reserveJoules = _rideMath.reserve(_reserveJoules, _power, _ftp,
-                                          _fuelBudgetKj * 1000, DEFAULT_RECOVERY_SECONDS, dt);
+        if (dt > 0 && dt <= 3600) {
+            var fuelPower = _power;
+            if (dt > 5 && info.averagePower != null) { fuelPower = info.averagePower; }
+            _fuelKj = _rideMath.totalFuel(_fuelKj, fuelPower, _ftp, dt);
+        }
+        if (dt > 0 && dt <= 5) {
+            _reserveJoules = _rideMath.reserve(_reserveJoules, _power, _ftp,
+                                              _reserveCapacityKj * 1000, DEFAULT_RECOVERY_SECONDS, dt);
+        }
         _lastTimerTime = nextTimer;
         _timerTime = nextTimer;
         updateEffortFeedback();
+        if (nextTimer > 0 && nextTimer - _lastStoredTimer >= 30000) {
+            saveBridgeTelemetry();
+            _lastStoredTimer = nextTimer;
+        }
+    }
+
+    function saveBridgeTelemetry() {
+        var riderId = Application.Properties.getValue("bridgeRiderId");
+        if (riderId == null || riderId.length() == 0) { riderId = "thomas"; }
+        Application.Storage.setValue("rideTelemetry", {
+            "at" => Time.now().value(),
+            "rider_id" => riderId,
+            "session_id" => "edge-" + _rideStartId.format("%d"),
+            "elapsed_seconds" => Math.floor(_timerTime / 1000),
+            "power_watts" => _power,
+            "heart_rate_bpm" => _heartRate,
+            "reserve_percent" => reservePercent(),
+            "fuel_percent" => fuelPercent(),
+            "fuel_kj" => _fuelKj,
+            "reserve_joules" => _reserveJoules,
+            "ride_start" => _rideStartId
+        });
     }
 
     function receiveCoach(data) {
         if (!(data instanceof Lang.Dictionary)) { return; }
-        if (data.hasKey("cue")) { _remoteCue = data["cue"].toString(); }
+        if (data.hasKey("cue") && data["cue"] != null) {
+            _remoteCue = data["cue"].toString();
+            var ttl = data.hasKey("ttlSeconds") ? data["ttlSeconds"].toNumber() : 90;
+            if (ttl > 360) { ttl = 360; }
+            if (ttl < 1) { ttl = 1; }
+            _remoteUntil = Time.now().value() + ttl;
+        }
         if (data.hasKey("targetLow")) { _remoteTargetLow = data["targetLow"].toNumber(); }
         if (data.hasKey("targetHigh")) { _remoteTargetHigh = data["targetHigh"].toNumber(); }
         if (data.hasKey("risk")) { _remoteRisk = data["risk"].toString(); }
@@ -118,250 +161,201 @@ class AnalogPowerView extends WatchUi.DataField {
             _ftp = data["ftp"].toNumber();
             Application.Properties.setValue("ftpWatts", _ftp);
         }
+        if (data.hasKey("totalFuelKj") && data["totalFuelKj"].toNumber() >= 100) {
+            var oldFuelFraction = fuelPercent() / 100.0;
+            _totalFuelBudgetKj = data["totalFuelKj"].toNumber();
+            _fuelKj = _totalFuelBudgetKj * oldFuelFraction;
+            Application.Properties.setValue("totalFuelKj", _totalFuelBudgetKj);
+        }
         if (data.hasKey("reserveKj") && data["reserveKj"].toNumber() > 0) {
-            var oldCapacity = _fuelBudgetKj * 1000.0;
-            var oldFraction = (oldCapacity > 0) ? (_reserveJoules / oldCapacity) : 1.0;
-            _fuelBudgetKj = data["reserveKj"].toNumber();
-            _reserveJoules = _fuelBudgetKj * 1000.0 * oldFraction;
-            Application.Properties.setValue("fuelBudgetKj", _fuelBudgetKj);
+            var oldReserveFraction = reservePercent() / 100.0;
+            _reserveCapacityKj = data["reserveKj"].toNumber();
+            _reserveJoules = _reserveCapacityKj * 1000.0 * oldReserveFraction;
+            Application.Properties.setValue("fuelBudgetKj", _reserveCapacityKj);
         }
         WatchUi.requestUpdate();
     }
 
+    function fuelPercent() {
+        if (_totalFuelBudgetKj <= 0) { return 0; }
+        var percent = Math.floor(100.0 * _fuelKj / _totalFuelBudgetKj);
+        if (percent < 0) { return 0; }
+        return percent > 100 ? 100 : percent;
+    }
+
+    function reservePercent() {
+        if (_reserveCapacityKj <= 0) { return 0; }
+        var percent = Math.floor(100.0 * _reserveJoules / (_reserveCapacityKj * 1000.0));
+        if (percent < 0) { return 0; }
+        return percent > 100 ? 100 : percent;
+    }
+
+    function expectedHeartRate() {
+        var powerLoad = _power.toFloat() / _ftp.toFloat();
+        if (powerLoad > 1) { powerLoad = 1.0; }
+        if (powerLoad < 0) { powerLoad = 0.0; }
+        return Math.floor(_restingHeartRate + ((_thresholdHeartRate - _restingHeartRate) * powerLoad));
+    }
+
+    function readiness() {
+        if (!_hasPower) { return "WAIT"; }
+        if (reservePercent() < 25 || (_heartRate > 0 && _heartRate >= _thresholdHeartRate)) { return "EASE OFF"; }
+        if (reservePercent() >= 75 && _power < _ftp && (_heartRate == 0 || _heartRate < _thresholdHeartRate)) { return "GO AGAIN"; }
+        if (_power >= _ftp) { return "EFFORT ON"; }
+        return "RECOVER";
+    }
+
     function updateEffortFeedback() {
-        var powerLoad = (_ftp > 0) ? ((_power.toFloat() / _ftp.toFloat()) * 100.0) : 0.0;
-        var hrRange = _thresholdHeartRate - _restingHeartRate;
+        var powerLoad = (_power.toFloat() / _ftp.toFloat()) * 100.0;
         var heartLoad = 0.0;
-        if (_heartRate > 0 && hrRange > 0) {
-            heartLoad = ((_heartRate - _restingHeartRate).toFloat() / hrRange.toFloat()) * 100.0;
+        if (_heartRate > 0) {
+            heartLoad = ((_heartRate - _restingHeartRate).toFloat() /
+                         (_thresholdHeartRate - _restingHeartRate).toFloat()) * 100.0;
         }
-        if (powerLoad < 0) { powerLoad = 0; }
         if (powerLoad > 150) { powerLoad = 150; }
-        if (heartLoad < 0) { heartLoad = 0; }
         if (heartLoad > 150) { heartLoad = 150; }
+        if (heartLoad < 0) { heartLoad = 0; }
         _effortScore = Math.floor((powerLoad * 0.6) + (heartLoad * 0.4));
         if (_effortScore > 100) { _effortScore = 100; }
 
-        if (!_hasPower) {
-            _feedback = "NO POWER";
-            return;
-        }
-        if (_heartRate <= 0) {
-            _feedback = "PAIR HR";
-            return;
-        }
-        if (fuelPercent() <= 15) {
-            _feedback = "FUEL LOW";
-            return;
-        }
-        if (_power > _ftp && _heartRate >= _thresholdHeartRate) {
-            _feedback = "EASE OFF";
-            return;
-        }
-
-        var cappedPower = powerLoad;
-        if (cappedPower > 100) { cappedPower = 100; }
-        var expectedHr = _restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * cappedPower) / 100.0);
-        var driftLimit = expectedHr * (1.0 + (_decouplingPercent.toFloat() / 100.0));
+        if (!_hasPower) { _feedback = "NO POWER"; return; }
+        if (_heartRate <= 0) { _feedback = "PAIR HR"; return; }
+        if (fuelPercent() <= 15) { _feedback = "FUEL LOW"; return; }
+        if (reservePercent() <= 25 && _power >= _ftp) { _feedback = "EASE OFF"; return; }
+        var driftLimit = expectedHeartRate() * (1.0 + (_decouplingPercent / 100.0));
         if (_timerTime > 1200000 && powerLoad > 50 && _heartRate > driftLimit) {
             _feedback = "HR DRIFT";
+        } else if (_power > _ftp && _heartRate >= _thresholdHeartRate) {
+            _feedback = "EASE OFF";
         } else if (_effortScore >= 88) {
             _feedback = "HARD";
-        } else if (powerLoad >= 78 && powerLoad <= 102 && heartLoad <= 105) {
+        } else if (powerLoad >= 78 && powerLoad <= 102) {
             _feedback = "HOLD";
-        } else if (_effortScore < 55 && fuelPercent() > 35) {
-            _feedback = "PUSH";
         } else {
             _feedback = "STEADY";
         }
     }
 
+    function currentCue() {
+        if (_remoteCue != null && Time.now().value() < _remoteUntil) { return _remoteCue; }
+        return _feedback;
+    }
+
     function onUpdate(dc) {
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
         dc.clear();
-        if (dc has :setAntiAlias) { dc.setAntiAlias(true); }
-
-        if (dc.getHeight() >= 220) {
-            drawDashboard(dc);
-        } else {
-            drawCompactGauge(dc);
-        }
+        if (dc.getHeight() >= 290) { drawDashboard(dc); }
+        else { drawCompact(dc); }
     }
 
     function drawDashboard(dc) {
         var w = dc.getWidth();
         var h = dc.getHeight();
-        var cx = w / 2;
-        var cy = (h * 40) / 100;
-        var r = (w * 35) / 100;
-        var tinyHeight = dc.getFontHeight(Graphics.FONT_XTINY);
-        var barY = h - 20;
-        var reserveY = barY - tinyHeight - 6;
-        var remoteY = reserveY - tinyHeight - 5;
-        var metricsY = remoteY - tinyHeight - 5;
-        var subtitleY = metricsY - tinyHeight - 4;
-        var powerY = subtitleY - dc.getFontHeight(Graphics.FONT_NUMBER_MILD) + 3;
+        var left = 13;
+        var width = w - 26;
+        var center = w / 2;
+        var small = Graphics.FONT_XTINY;
+        var smallHeight = dc.getFontHeight(small);
 
-        drawCheckEngine(dc, cx, 3);
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.setPenWidth(3);
-        dc.drawArc(cx, cy, r, Graphics.ARC_CLOCKWISE, 210, 330);
-        dc.setPenWidth(1);
-        dc.drawArc(cx, cy, r - 7, Graphics.ARC_CLOCKWISE, 210, 330);
-        drawTicksAndLabels(dc, cx, cy, r);
-        drawNeedle(dc, cx, cy, r);
-
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.fillCircle(cx, cy, 8);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_WHITE);
-        dc.fillCircle(cx, cy, 3);
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+        drawTextBand(dc, center, 3, currentCue());
 
         var powerText = _hasPower ? _power.format("%d") : "--";
-        dc.drawText(cx, powerY, Graphics.FONT_NUMBER_MILD,
-                    powerText, Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(cx, subtitleY, Graphics.FONT_XTINY,
-                    "W     FTP " + _ftp.format("%d"),
-                    Graphics.TEXT_JUSTIFY_CENTER);
-
-        drawLiveMetrics(dc, cx, metricsY, remoteY);
-        drawFuelGauge(dc, 14, reserveY, w - 28, barY);
-    }
-
-    function drawCheckEngine(dc, cx, y) {
-        var isHot = _hasPower && (_power > _ftp);
-        var x = cx - 50;
-        var label = isHot ? "FTP!" : ((_remoteCue != null) ? _remoteCue : _feedback);
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.setPenWidth(1);
-        if (isHot) {
-            dc.fillRectangle(x, y, 100, 21);
-            dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_BLACK);
-        } else {
-            dc.drawRectangle(x, y, 100, 21);
-        }
-        dc.drawText(cx, y + 2, Graphics.FONT_XTINY,
-                    label, Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-    }
-
-    function drawTicksAndLabels(dc, cx, cy, r) {
-        var labelValues = [0, 80, 100, 150, 400];
-        for (var i = 0; i <= 21; i += 1) {
-            var percent = (i == 21) ? 150 : (i * 20);
-            var fraction = _rideMath.fraction(percent);
-            var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
-            var isMajor = (labelValues.indexOf(percent) >= 0);
-            var tickLen = isMajor ? 11 : 5;
-            var p1 = polarPoint(cx, cy, r - 3, angle);
-            var p2 = polarPoint(cx, cy, r - 3 - tickLen, angle);
-            dc.setPenWidth(isMajor ? 3 : 1);
-            dc.drawLine(p1[0], p1[1], p2[0], p2[1]);
-
-            if (isMajor) {
-                var label = percent;
-                var lp = polarPoint(cx, cy, r - 28, angle);
-                dc.drawText(lp[0], lp[1] - 7, Graphics.FONT_XTINY,
-                            label.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
-            }
+        dc.drawText(center, 28, Graphics.FONT_MEDIUM,
+                    powerText + " W", Graphics.TEXT_JUSTIFY_CENTER);
+        drawPowerBar(dc, left, 59, width, 18);
+        for (var n = 1; n <= 5; n += 1) {
+            dc.drawText(left + ((width * n) / 5), 81, small,
+                        n.format("%d"), Graphics.TEXT_JUSTIFY_CENTER);
         }
 
-        var ftpAngle = START_ANGLE - (SWEEP_ANGLE * _rideMath.fraction(100));
-        var ftpA = polarPoint(cx, cy, r + 1, ftpAngle);
-        var ftpB = polarPoint(cx, cy, r - 19, ftpAngle);
-        dc.setPenWidth(5);
-        dc.drawLine(ftpA[0], ftpA[1], ftpB[0], ftpB[1]);
-    }
-
-    function drawNeedle(dc, cx, cy, r) {
-        var shown = _needlePower;
-        if (shown < 0) { shown = 0; }
-        var percent = (shown * 100.0) / _ftp.toFloat();
-        var fraction = _rideMath.fraction(percent);
-        var angle = START_ANGLE - (SWEEP_ANGLE * fraction);
-        var tip = polarPoint(cx, cy, r - 24, angle);
-        var baseA = polarPoint(cx, cy, 5, angle + 90.0);
-        var baseB = polarPoint(cx, cy, 5, angle - 90.0);
-        var tail = polarPoint(cx, cy, 13, angle + 180.0);
-        dc.fillPolygon([[tip[0], tip[1]], [baseA[0], baseA[1]],
-                        [tail[0], tail[1]], [baseB[0], baseB[1]]]);
-    }
-
-    function fuelPercent() {
-        if (_fuelBudgetKj <= 0) { return 0.0; }
-        var remaining = (_reserveJoules / (_fuelBudgetKj * 1000.0)) * 100.0;
-        if (remaining < 0) { remaining = 0; }
-        if (remaining > 100) { remaining = 100; }
-        return remaining;
-    }
-
-    function fuelRemainingKj() {
-        return Math.floor(_reserveJoules / 1000.0);
-    }
-
-    function expectedHeartRate() {
-        if (_ftp <= 0) { return _restingHeartRate; }
-        var powerLoad = (_power.toFloat() / _ftp.toFloat()) * 100.0;
-        if (powerLoad < 0) { powerLoad = 0; }
-        if (powerLoad > 100) { powerLoad = 100; }
-        return Math.floor(_restingHeartRate + (((_thresholdHeartRate - _restingHeartRate) * powerLoad) / 100.0));
-    }
-
-    function drawLiveMetrics(dc, cx, y, remoteY) {
-        var powerPercent = (_ftp > 0) ? ((_power * 100) / _ftp) : 0;
         var hrText = (_heartRate > 0) ? _heartRate.format("%d") : "--";
-        var deltaText = "";
-        if (_heartRate > 0 && _power > 0) {
-            var delta = _heartRate - expectedHeartRate();
-            deltaText = (delta >= 0 ? "+" : "") + delta.format("%d");
+        var delta = (_heartRate > 0 && _hasPower) ? _heartRate - expectedHeartRate() : 0;
+        var deltaText = (_heartRate > 0 && _hasPower) ? ((delta >= 0 ? "+" : "") + delta.format("%d")) : "--";
+        dc.drawText(center, 108, small,
+                    "HR " + hrText + "  vs P " + deltaText + "   E " + _effortScore.format("%d"),
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        var targetText = "FTP " + _ftp.format("%d") + " W";
+        if (_remoteTargetHigh > 0 && Time.now().value() < _remoteUntil) {
+            targetText = "T " + _remoteTargetLow.format("%d") + "-" +
+                         _remoteTargetHigh.format("%d") + "  " + _remoteRisk +
+                         " " + _remoteConfidence.format("%d") + "%";
+        }
+        dc.drawText(center, 108 + smallHeight + 3, small,
+                    targetText, Graphics.TEXT_JUSTIFY_CENTER);
+
+        dc.drawText(center, 160, small,
+                    "FUEL EST  " + fuelPercent().format("%d") + "%  " +
+                    Math.floor(_fuelKj).format("%d") + "kJ",
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        drawSegmentBar(dc, left, 185, width, 18, fuelPercent(), 20, 0);
+
+        dc.drawText(center, 213, small,
+                    "EFFORT RESERVE  " + reservePercent().format("%d") + "%",
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        drawSegmentBar(dc, left, 239, width, 18, reservePercent(), 20, 75);
+
+        dc.drawLine(left, 268, left + width, 268);
+        dc.drawText(center, 273, small,
+                    readiness() + "  " + Math.floor(_reserveJoules / 1000.0).format("%d") + "kJ",
+                    Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
+    function drawTextBand(dc, center, y, label) {
+        dc.drawRectangle(center - 53, y, 106, 21);
+        dc.drawText(center, y + 2, Graphics.FONT_XTINY,
+                    label, Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
+    function drawPowerBar(dc, x, y, width, height) {
+        var fill = (_power * width) / 500;
+        if (fill > width) { fill = width; }
+        if (fill < 0) { fill = 0; }
+        dc.drawRectangle(x, y, width, height);
+        if (_hasPower && fill > 2) { dc.fillRectangle(x + 2, y + 2, fill - 3, height - 4); }
+        for (var n = 1; n < 5; n += 1) {
+            var tickX = x + ((width * n) / 5);
+            dc.setColor((tickX - x < fill) ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK,
+                        Graphics.COLOR_WHITE);
+            dc.drawLine(tickX, y + 2, tickX, y + height - 3);
         }
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.drawText(cx, y, Graphics.FONT_XTINY,
-                    "HR " + hrText + " " + deltaText + "   P " + powerPercent.format("%d") + "%   E " + _effortScore.format("%d"),
-                    Graphics.TEXT_JUSTIFY_CENTER);
-        if (_remoteTargetHigh > 0) {
-            dc.drawText(cx, remoteY, Graphics.FONT_XTINY,
-                        "T " + _remoteTargetLow.format("%d") + "-" + _remoteTargetHigh.format("%d") + "  " + _remoteRisk + " " + _remoteConfidence.format("%d") + "%",
-                        Graphics.TEXT_JUSTIFY_CENTER);
+        var ftpX = x + ((_ftp * width) / 500);
+        if (ftpX > x && ftpX < x + width) {
+            dc.drawLine(ftpX, y - 4, ftpX, y - 1);
         }
     }
 
-    function drawFuelGauge(dc, x, y, width, barY) {
-        var percent = fuelPercent();
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-        dc.drawText(x + (width / 2), y, Graphics.FONT_XTINY,
-                    "RES " + percent.format("%d") + "%  " + fuelRemainingKj().format("%d") + "kJ",
-                    Graphics.TEXT_JUSTIFY_CENTER);
-        var segments = 20;
-        var filled = Math.floor(percent / 5.0);
-        for (var i = 0; i < segments; i += 1) {
-            var segmentX = x + ((width * i) / segments);
-            var segmentRight = x + ((width * (i + 1)) / segments) - 2;
-            var segmentWidth = segmentRight - segmentX;
-            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
-            dc.drawRectangle(segmentX, barY, segmentWidth, 12);
-            if (i < filled) {
-                dc.fillRectangle(segmentX + 2, barY + 2, segmentWidth - 3, 8);
+    function drawSegmentBar(dc, x, y, width, height, percent, segments, markerPercent) {
+        var filled = Math.floor(percent * segments / 100);
+        if (filled > segments) { filled = segments; }
+        if (filled < 0) { filled = 0; }
+        for (var n = 0; n < segments; n += 1) {
+            var left = x + ((width * n) / segments);
+            var right = x + ((width * (n + 1)) / segments) - 2;
+            var blockWidth = right - left;
+            dc.drawRectangle(left, y, blockWidth, height);
+            if (n < filled && blockWidth > 3) {
+                dc.fillRectangle(left + 2, y + 2, blockWidth - 3, height - 4);
             }
         }
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+        if (markerPercent > 0) {
+            var markerX = x + ((width * markerPercent) / 100);
+            dc.drawLine(markerX, y - 4, markerX, y - 1);
+        }
     }
 
-    function drawCompactGauge(dc) {
+    function drawCompact(dc) {
         var w = dc.getWidth();
         var h = dc.getHeight();
-        var cx = w / 2;
-        var powerText = _hasPower ? _power.format("%d") : "--";
-        dc.drawText(cx, 2, Graphics.FONT_NUMBER_MILD,
-                    powerText, Graphics.TEXT_JUSTIFY_CENTER);
-        dc.drawText(cx, h - 18, Graphics.FONT_XTINY,
-                    ((_remoteCue != null) ? _remoteCue : _feedback) + "  " + fuelPercent().format("%d") + "%",
+        var center = w / 2;
+        dc.drawText(center, 2, Graphics.FONT_NUMBER_MILD,
+                    (_hasPower ? _power.format("%d") : "--") + " W",
                     Graphics.TEXT_JUSTIFY_CENTER);
-    }
-
-    function polarPoint(cx, cy, radius, degrees) {
-        var rad = Math.toRadians(degrees);
-        return [cx + (Math.cos(rad) * radius),
-                cy - (Math.sin(rad) * radius)];
+        dc.drawText(center, h - 35, Graphics.FONT_XTINY,
+                    "F " + fuelPercent().format("%d") + "%  R " +
+                    reservePercent().format("%d") + "%",
+                    Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(center, h - 17, Graphics.FONT_XTINY,
+                    currentCue(), Graphics.TEXT_JUSTIFY_CENTER);
     }
 }
