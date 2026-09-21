@@ -62,7 +62,7 @@
   </section>
   <section class="card">
     <h2>Live sensors</h2>
-    <p class="note">Connect your Assioma power pedal and Wahoo heart-rate strap directly to this phone. Open this HTTPS page in a Web Bluetooth browser such as Bluefy on iPhone; Safari cannot pair sensors.</p>
+    <p class="note">Connect your Assioma power pedal and Wahoo heart-rate strap directly to this phone. Open this HTTPS page in <a href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055" style="color:#71d6cc">Bluefy</a> on iPhone; Safari cannot pair sensors.</p>
     <div class="grid"><button id="pairPower" class="secondary">Pair power pedal</button><button id="pairHr" class="secondary">Pair HR strap</button></div>
     <p class="note" id="sensorNote">Waiting for sensors. Keep this page in the foreground during a ride.</p>
   </section>
@@ -93,6 +93,7 @@ let connected=false;
 let profile={}, lastPrediction=null, lastPredictionAt=0, rideStarted=Date.now(), lastTick=Date.now(), lastUpload=0, uploading=false;
 let live={rider_id:'thomas',session_id:'phone-'+rideStarted,power_watts:0,heart_rate_bpm:0,fuel_percent:100,reserve_percent:100,elapsed_seconds:0};
 const sensorAt={power:0,hr:0};
+if(location.protocol==='https:')$('connectionNote').textContent='Secure remote link ready. Enter your private pairing token to connect the coach.';
 $('rider').value=localStorage.getItem('rideBrainRider')||'thomas';
 $('token').value=localStorage.getItem('rideBrainToken')||'';
 async function api(path,method='GET',body){
