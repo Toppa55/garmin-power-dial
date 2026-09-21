@@ -16,6 +16,7 @@ const token = process.env.COMPANION_TOKEN;
 const pendingAuthorizations = new Map();
 const dashboardPath = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const phonePath = fileURLToPath(new URL("../public/phone.html", import.meta.url));
+const bleRidePath = fileURLToPath(new URL("../public/ble-ride.mjs", import.meta.url));
 const manifestPath = fileURLToPath(new URL("../public/manifest.webmanifest", import.meta.url));
 const iconPath = fileURLToPath(new URL("../public/icon.svg", import.meta.url));
 
@@ -25,11 +26,7 @@ function send(response, status, body) {
 }
 
 function isAuthorized(request) {
-  const paired = token && request.headers.authorization === `Bearer ${token}`;
-  const address = request.socket.remoteAddress;
-  const localDashboard = request.headers["x-companion-local"] === "1" &&
-    (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1");
-  return paired || localDashboard;
+  return Boolean(token && request.headers.authorization === `Bearer ${token}`);
 }
 
 async function readJson(request) {
@@ -67,6 +64,11 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && url.pathname === "/phone") {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     response.end(await readFile(phonePath));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/ble-ride.mjs") {
+    response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    response.end(await readFile(bleRidePath));
     return;
   }
   if (request.method === "GET" && url.pathname === "/manifest.webmanifest") {

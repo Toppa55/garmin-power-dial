@@ -36,7 +36,9 @@ The fuel estimate is mechanical-work-equivalent energy, not a measurement of gly
 
 ## iPhone web app and bridge limits
 
-START_PHONE_WEB.cmd makes the phone dashboard available on the same Wi-Fi as the PC. The iPhone opens /phone, enters its pairing token, and shows the latest Edge state or a manual AI check-in. It can be added to the Home Screen in Safari. A remote ride requires an HTTPS-hosted backend; a LAN-only PC URL is not reachable on the road.
+START_PHONE_WEB.cmd makes the phone dashboard available on the same Wi-Fi as the PC. The iPhone opens /phone, enters its pairing token, and shows the latest Edge state or a manual AI check-in. It can be added to the Home Screen in Safari. A remote ride requires an HTTPS-hosted backend or a Cloudflare Tunnel from a running PC; a LAN-only PC URL is not reachable on the road. The pairing token is required for all API calls, including loopback calls.
+
+The phone page also offers Web Bluetooth sensor pairing in a compatible iPhone browser such as Bluefy. It subscribes to standard Cycling Power (0x1818/0x2A63) and Heart Rate (0x180D/0x2A37) notifications, updates power, HR comparison, fuel, and reserve locally, and posts live state about every five seconds when both sensors are fresh. The Edge can stay paired over ANT+. Safari lacks Web Bluetooth, and the browser path should be kept in the foreground and tested with the actual pedals and strap before relying on it during a ride. This direct-sensor path is independent of Garmin's five-minute background polling; it speeds up feedback on the phone, not on the Edge.
 
 Set bridgeUrl in Garmin Connect IQ settings to the reachable https://.../v1/edge/poll endpoint, set bridgeToken to the companion token, and use the same bridgeRiderId as the phone dashboard. The Edge sends a small snapshot about every five minutes and receives a cue, target, FTP, and fuel calibration. Power, HR, and both bars remain second-by-second local calculations. Garmin enforces a minimum five-minute background interval; a web-only iPhone page cannot bypass it. The optional phone-message receiver remains ready for a future native iOS companion if faster AI cue delivery is needed.
 

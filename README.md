@@ -63,9 +63,13 @@ After copying, safely eject/disconnect the Edge and add **Analog Power Dial** as
 
 ## iPhone web app
 
-Double-click START_PHONE_WEB.cmd on the PC. It prints a same-Wi-Fi URL and the private pairing token for the iPhone. Open the URL in Safari and use Share → Add to Home Screen if you want an app icon. The PC must stay on and the iPhone must remain on that Wi-Fi for this local setup.
+Double-click START_PHONE_WEB.cmd on the PC. It prints a same-Wi-Fi URL and the private pairing token for the iPhone. Open the URL in Safari and use Share → Add to Home Screen if you want an app icon. The PC must stay on and the iPhone must remain on that Wi-Fi for this local setup. The pairing token is required even on the PC; local-looking request headers cannot bypass it.
 
-The Edge calculates live power, HR comparison, fuel, and effort reserve every second. Its optional web AI bridge uses Garmin's five-minute background interval and requires a reachable HTTPS backend URL and token in the Garmin settings. An iPhone browser alone cannot send Garmin Connect IQ phone messages or read BLE cycling sensors through Safari; faster AI delivery requires a native iOS companion using Garmin's Mobile SDK.
+For a temporary remote HTTPS link, run `cloudflared tunnel --url http://127.0.0.1:8787` while the backend is bound to localhost. This creates a random TryCloudflare URL while both processes remain running. It is a test relay, not an always-on deployment. A permanent hostname requires a named Cloudflare tunnel or hosted backend and Cloudflare account configuration.
+
+For faster phone feedback, open the HTTPS phone page in an iPhone browser with Web Bluetooth support, such as Bluefy. Tap **Pair power pedal** and **Pair HR strap**. A Bluetooth-enabled Assioma pedal and Wahoo strap can send readings directly to the phone, while the Edge can keep its ANT+ sensor connections. The phone updates its bars from sensor notifications and posts a coaching snapshot roughly every five seconds. Keep the page in the foreground; pairing and background behavior still need testing on the physical iPhone and sensors. Safari does not provide Web Bluetooth, so its phone page remains a view of the latest backend state.
+
+The Edge calculates live power, HR comparison, fuel, and effort reserve every second. Its optional web AI bridge uses Garmin's five-minute background interval and requires a reachable HTTPS backend URL and token in the Garmin settings. A Bluetooth-capable browser can give the phone a faster independent view, but it cannot deliver faster Connect IQ phone messages to the Edge. That requires a native iOS companion using Garmin's Mobile SDK.
 
 ## Making changes
 
