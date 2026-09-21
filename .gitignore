@@ -3,6 +3,7 @@
 /bin/
 /gen/
 /backend/data/
+/backend/node_modules/
 *.prg
 *.prg.debug.xml
 *.iq

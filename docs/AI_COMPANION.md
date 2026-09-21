@@ -36,7 +36,9 @@ The fuel estimate is mechanical-work-equivalent energy, not a measurement of gly
 
 ## iPhone web app and bridge limits
 
-START_PHONE_WEB.cmd makes the phone dashboard available on the same Wi-Fi as the PC. The iPhone opens /phone, enters its pairing token, and shows the latest Edge state or a manual AI check-in. It can be added to the Home Screen in Safari. A remote ride requires an HTTPS-hosted backend; a LAN-only PC URL is not reachable on the road.
+START_PHONE_WEB.cmd makes the phone dashboard available on the same Wi-Fi as the PC. The iPhone opens /phone, enters its pairing token, and shows the latest Edge state or a manual AI check-in. It can be added to the Home Screen in Safari. A remote ride requires an HTTPS-hosted backend or a Cloudflare Tunnel from a running PC; a LAN-only PC URL is not reachable on the road. The pairing token is required for all API calls, including loopback calls.
+
+The phone page also offers Web Bluetooth sensor pairing in a compatible iPhone browser such as Bluefy. It subscribes to standard Cycling Power (0x1818/0x2A63) and Heart Rate (0x180D/0x2A37) notifications, updates power, HR comparison, fuel, and reserve locally, and posts live state about every five seconds when both sensors are fresh. The Edge can stay paired over ANT+. Safari lacks Web Bluetooth, and the browser path should be kept in the foreground and tested with the actual pedals and strap before relying on it during a ride. This direct-sensor path is independent of Garmin's five-minute background polling; it speeds up feedback on the phone, not on the Edge.
 
 Set bridgeUrl in Garmin Connect IQ settings to the reachable https://.../v1/edge/poll endpoint, set bridgeToken to the companion token, and use the same bridgeRiderId as the phone dashboard. The Edge sends a small snapshot about every five minutes and receives a cue, target, FTP, and fuel calibration. Power, HR, and both bars remain second-by-second local calculations. Garmin enforces a minimum five-minute background interval; a web-only iPhone page cannot bypass it. The optional phone-message receiver remains ready for a future native iOS companion if faster AI cue delivery is needed.
 
@@ -59,6 +61,12 @@ Open `http://127.0.0.1:8787` after starting the backend. The dashboard saves sle
 ## Garmin Connect access
 
 Garmin's Activity API requires an approved Garmin Connect Developer Program application. The public documentation confirms OAuth 2.0, user consent, activity backfill, FIT details, and push or pull integration, but the assigned authorization, token, and activity URLs are provided through the approved developer portal.
+
+For a personal rider without that approval, Garmin Connect's **Activities → All Activities → Export CSV** supplies a manual history route. Load the complete activity list before exporting, then choose the CSV file in the phone page's **Learn from Garmin Connect rides** section. `POST /v1/garmin/import-csv` reads all powered cycling summaries in the file, reports skipped rows, and updates the learned profile. The file comes from Garmin Connect, not the Edge's USB storage. Re-export and import after later rides to refresh the profile. This summary export does not include the full second-by-second ride trace, and it is not automatic syncing.
+
+Alternatively, for a connected Edge 130 Plus, run `node --env-file=../.env.local scripts/import-edge-rides.mjs E:/GARMIN/Activity <rider-id>` from `backend`, using the actual drive letter. The script uses Garmin's FIT SDK to read cycling power and heart-rate sessions, computes normalized power from recorded power samples, and updates the same rider profile without modifying the device. It never forwards GPS coordinates to the AI service. Only rides currently stored on the Edge are included; use the Garmin Connect export for a longer history.
+
+Strava's 2026 API Policy prohibits using ordinary Strava API data or derived summaries to operate an AI application, so the app must not feed Strava API activities into the learning service. Strava exempts its own personal-use MCP connector, but Ride Brain has no access to that connector today.
 
 Configure these values from that portal:
 

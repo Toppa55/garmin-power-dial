@@ -63,9 +63,13 @@ After copying, safely eject/disconnect the Edge and add **Analog Power Dial** as
 
 ## iPhone web app
 
-Double-click START_PHONE_WEB.cmd on the PC. It prints a same-Wi-Fi URL and the private pairing token for the iPhone. Open the URL in Safari and use Share → Add to Home Screen if you want an app icon. The PC must stay on and the iPhone must remain on that Wi-Fi for this local setup.
+Double-click START_PHONE_WEB.cmd on the PC. It prints a same-Wi-Fi URL and the private pairing token for the iPhone. Open the URL in Safari and use Share → Add to Home Screen if you want an app icon. The PC must stay on and the iPhone must remain on that Wi-Fi for this local setup. The pairing token is required even on the PC; local-looking request headers cannot bypass it.
 
-The Edge calculates live power, HR comparison, fuel, and effort reserve every second. Its optional web AI bridge uses Garmin's five-minute background interval and requires a reachable HTTPS backend URL and token in the Garmin settings. An iPhone browser alone cannot send Garmin Connect IQ phone messages or read BLE cycling sensors through Safari; faster AI delivery requires a native iOS companion using Garmin's Mobile SDK.
+For a temporary remote HTTPS link, run `cloudflared tunnel --url http://127.0.0.1:8787` while the backend is bound to localhost. This creates a random TryCloudflare URL while both processes remain running. It is a test relay, not an always-on deployment. A permanent hostname requires a named Cloudflare tunnel or hosted backend and Cloudflare account configuration.
+
+For faster phone feedback, open the HTTPS phone page in an iPhone browser with Web Bluetooth support, such as Bluefy. Tap **Pair power pedal** and **Pair HR strap**. A Bluetooth-enabled Assioma pedal and Wahoo strap can send readings directly to the phone, while the Edge can keep its ANT+ sensor connections. The phone updates its bars from sensor notifications and posts a coaching snapshot roughly every five seconds. Keep the page in the foreground; pairing and background behavior still need testing on the physical iPhone and sensors. Safari does not provide Web Bluetooth, so its phone page remains a view of the latest backend state.
+
+The Edge calculates live power, HR comparison, fuel, and effort reserve every second. Its optional web AI bridge uses Garmin's five-minute background interval and requires a reachable HTTPS backend URL and token in the Garmin settings. A Bluetooth-capable browser can give the phone a faster independent view, but it cannot deliver faster Connect IQ phone messages to the Edge. That requires a native iOS companion using Garmin's Mobile SDK.
 
 ## Making changes
 
@@ -79,4 +83,8 @@ Only the Edge 130 Plus is declared in the manifest. No other Garmin devices are 
 
 ## AI calibration
 
-The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. Garmin Connect supplies completed ride history to the service after OAuth consent; the service aggregates every ride and updates a versioned rider profile. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard applies that learned profile offline to compare live HR and power every second.
+The OpenAI API key stays in the companion backend and is never included in the Garmin app or Git history. An approved Garmin Connect Developer Program application can supply completed ride history after OAuth consent. For personal use, Garmin Connect's manual CSV export supplies ride summaries. The service aggregates powered cycling rides and updates a versioned rider profile. See [AI companion architecture](docs/AI_COMPANION.md) for the data flow and setup. The dashboard applies that learned profile offline to compare live HR and power every second.
+
+For personal use without an approved Garmin Connect Developer Program application, export activities as CSV from Garmin Connect on the web and import that file from the phone page. The import uses all powered cycling summaries in the file, skips other activities, and replaces the learned profile after each export. It is a manual Garmin Connect data export, not an automatic account connection. Garmin's official Activity API is limited to approved business use.
+
+If an Edge 130 Plus is plugged into the companion computer, its `GARMIN/Activity/*.fit` files can be read directly with Garmin's FIT SDK: run `node --env-file=../.env.local scripts/import-edge-rides.mjs E:/GARMIN/Activity <rider-id>` from `backend` (adjust the drive letter). This reads the device without changing its files and updates the companion's learned profile. It covers only rides still stored on the Edge; a Garmin Connect export is needed for older activities missing from the device.

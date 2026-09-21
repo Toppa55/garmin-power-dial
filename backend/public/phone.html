@@ -55,9 +55,16 @@
   </section>
   <section class="card grid">
     <div class="mini"><strong id="heartRate">--</strong><span>Heart rate · bpm</span></div>
+    <div class="mini"><strong id="hrDelta">--</strong><span>HR vs expected · bpm</span></div>
     <div class="mini"><strong id="target">--</strong><span>Target · watts</span></div>
     <div class="mini"><strong id="risk">--</strong><span>Risk</span></div>
     <div class="mini"><strong id="updated">--</strong><span>Last update</span></div>
+  </section>
+  <section class="card">
+    <h2>Live sensors</h2>
+    <p class="note">Connect your Assioma power pedal and Wahoo heart-rate strap directly to this phone. Open this HTTPS page in <a href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055" style="color:#71d6cc">Bluefy</a> on iPhone; Safari cannot pair sensors.</p>
+    <div class="grid"><button id="pairPower" class="secondary">Pair power pedal</button><button id="pairHr" class="secondary">Pair HR strap</button></div>
+    <p class="note" id="sensorNote">Waiting for sensors. Keep this page in the foreground during a ride.</p>
   </section>
   <section class="card">
     <details open><summary>Connect this phone</summary>
@@ -65,6 +72,14 @@
       <label for="token">Companion pairing token</label><input id="token" type="password" autocomplete="off">
       <button id="connect">Connect</button>
       <p class="note" id="connectionNote">For the same Wi-Fi, open this page using the computer's LAN address. A remote ride needs an HTTPS-hosted companion service.</p>
+    </details>
+  </section>
+  <section class="card">
+    <details><summary>Learn from Garmin Connect rides</summary>
+      <p class="note">In Garmin Connect on a browser, open Activities → All Activities, load the full list, then choose Export CSV. Import that file here. This is a manual export, not an automatic account link.</p>
+      <label for="garminCsv">Garmin Connect activities CSV</label><input id="garminCsv" type="file" accept=".csv,text/csv">
+      <button class="secondary" id="importGarmin">Import rides</button>
+      <p class="note" id="importNote">Powered cycling rides will update your learned profile; other activities are skipped.</p>
     </details>
   </section>
   <section class="card">
@@ -77,11 +92,16 @@
       <button class="secondary" id="checkin">Ask AI</button>
     </details>
   </section>
-  <p class="note">On the Edge, power and both fuel bars update locally every second. Web-only AI polling can update the Edge about every five minutes; an iOS native bridge is needed for faster delivery.</p>
+  <p class="note">The phone updates from paired sensors as packets arrive and sends a snapshot to the coach about every five seconds. The Edge still updates locally every second; its web AI polling remains about every five minutes.</p>
 </main>
-<script>
+<script type="module">
+import { advanceRide, parseHeartRateMeasurement, parsePowerMeasurement, quickCue } from '/ble-ride.mjs';
 const $=id=>document.getElementById(id),pct=n=>Math.max(0,Math.min(100,Number(n)||0));
 let connected=false;
+let profile={}, lastPrediction=null, lastPredictionAt=0, rideStarted=Date.now(), lastTick=Date.now(), lastUpload=0, uploading=false;
+let live={rider_id:'thomas',session_id:'phone-'+rideStarted,power_watts:0,heart_rate_bpm:0,fuel_percent:100,reserve_percent:100,elapsed_seconds:0};
+const sensorAt={power:0,hr:0};
+if(location.protocol==='https:')$('connectionNote').textContent='Secure remote link ready. Enter your private pairing token to connect the coach.';
 $('rider').value=localStorage.getItem('rideBrainRider')||'thomas';
 $('token').value=localStorage.getItem('rideBrainToken')||'';
 async function api(path,method='GET',body){
@@ -102,6 +122,7 @@ function render(record){
   $('reserve').textContent=s.reserve_percent??'--';
   $('reserveFill').style.width=pct(s.reserve_percent)+'%';
   $('heartRate').textContent=s.heart_rate_bpm??'--';
+  $('hrDelta').textContent=Number.isFinite(p.hrDelta)?(p.hrDelta>0?'+':'')+p.hrDelta:'--';
   $('target').textContent=p.targetLow&&p.targetHigh?p.targetLow+'–'+p.targetHigh:'--';
   $('risk').textContent=p.risk||'--';
   const age=Date.now()-new Date(record.updated_at||p.at||0).getTime();
@@ -111,15 +132,85 @@ function render(record){
 }
 async function refresh(){
   if(!connected)return;
+  if(sensorAt.power || sensorAt.hr)return;
   try{render(await api('/v1/live/latest?rider_id='+encodeURIComponent($('rider').value)));}
   catch(error){$('status').textContent='WAITING';$('connectionNote').textContent=error.message;}
 }
 $('connect').onclick=async()=>{
+  try{await api('/v1/context?rider_id='+encodeURIComponent($('rider').value));}
+  catch(error){connected=false;$('connectionNote').textContent='Pairing failed: '+error.message;return;}
   localStorage.setItem('rideBrainRider',$('rider').value);
   localStorage.setItem('rideBrainToken',$('token').value);
   connected=true;
+  live.rider_id=$('rider').value;
+  try{
+    profile=await api('/v1/profile?rider_id='+encodeURIComponent(live.rider_id));
+    const source=profile.source==='edge_fit_usb'?'Edge ride files':profile.source==='garmin_connect_csv'?'Garmin Connect export':'ride history';
+    $('connectionNote').textContent=`Connected. Learned from ${profile.rides_analyzed||profile.rides_imported||0} rides via ${source}.`;
+  }
+  catch{ $('connectionNote').textContent='Connected. Garmin history is not synced yet, so fuel and HR targets use starter estimates.'; }
   await refresh();
 };
+async function pair(kind){
+  if(!navigator.bluetooth){$('sensorNote').textContent='This browser cannot access Bluetooth sensors. On iPhone, open this link in Bluefy.';return;}
+  const service=kind==='power'?0x1818:0x180d,measurement=kind==='power'?0x2a63:0x2a37;
+  try{
+    const device=await navigator.bluetooth.requestDevice({filters:[{services:[service]}],optionalServices:[service]});
+    const server=await device.gatt.connect();
+    const characteristic=await (await server.getPrimaryService(service)).getCharacteristic(measurement);
+    characteristic.addEventListener('characteristicvaluechanged',event=>{
+      try{
+        const value=event.target.value;
+        if(kind==='power')live.power_watts=Math.max(0,parsePowerMeasurement(value));
+        else live.heart_rate_bpm=parseHeartRateMeasurement(value);
+        sensorAt[kind]=Date.now();
+        displayLive();
+      }catch(error){$('sensorNote').textContent=error.message;}
+    });
+    await characteristic.startNotifications();
+    device.addEventListener('gattserverdisconnected',()=>{$('sensorNote').textContent=device.name+' disconnected. Tap Pair again.';sensorAt[kind]=0;});
+    $('sensorNote').textContent=device.name+' paired. '+(sensorAt.power&&sensorAt.hr?'Both sensors live.':'Pair the other sensor too.');
+  }catch(error){$('sensorNote').textContent='Pairing failed: '+error.message;}
+}
+function displayLive(){
+  const prediction=quickCue(live,profile);
+  const recent=Date.now()-lastPredictionAt<15000?lastPrediction:{};
+  render({state:live,prediction:{...prediction,...recent,expectedHr:prediction.expectedHr,hrDelta:prediction.hrDelta},updated_at:new Date().toISOString()});
+  $('status').textContent=(Date.now()-sensorAt.power>5000||Date.now()-sensorAt.hr>10000)?'SENSOR GAP':'SENSORS LIVE';
+}
+async function uploadLive(){
+  if(uploading||!connected||Date.now()-sensorAt.power>5000||Date.now()-sensorAt.hr>10000)return;
+  uploading=true;
+  lastUpload=Date.now();
+  try{
+    lastPrediction=await api('/v1/live/state','POST',{...live,rider_id:$('rider').value,timestamp:new Date().toISOString()});
+    lastPredictionAt=Date.now();
+    displayLive();
+  }catch(error){$('sensorNote').textContent='Live coaching upload failed: '+error.message;}
+  finally{uploading=false;}
+}
+$('pairPower').onclick=()=>pair('power');
+$('pairHr').onclick=()=>pair('hr');
+$('importGarmin').onclick=async()=>{
+  const file=$('garminCsv').files[0];
+  if(!connected){$('importNote').textContent='Connect this phone with its pairing token first.';return;}
+  if(!file){$('importNote').textContent='Choose the CSV file exported from Garmin Connect first.';return;}
+  $('importNote').textContent='Learning from your rides…';
+  try{
+    profile=await api('/v1/garmin/import-csv','POST',{rider_id:$('rider').value,csv:await file.text()});
+    $('importNote').textContent=`Profile updated from ${profile.rides_imported} powered cycling rides. ${profile.rides_skipped} activities were skipped.`;
+    if(sensorAt.power)displayLive();
+  }catch(error){$('importNote').textContent='Import failed: '+error.message;}
+};
+setInterval(()=>{
+  const now=Date.now(),dt=(now-lastTick)/1000;lastTick=now;
+  if(sensorAt.power){
+    if(now-sensorAt.power>5000)live.power_watts=0;
+    else live=advanceRide(live,dt,Number(profile.ftp_watts)||250,Number(profile.ride_energy_budget_kj)||1600,Number(profile.hard_effort_reserve_kj)||23);
+    displayLive();
+    if(now-lastUpload>5000)uploadLive();
+  }
+},1000);
 $('checkin').onclick=async()=>{
   try{
     const result=await api('/v1/live/state','POST',{
@@ -132,5 +223,5 @@ $('checkin').onclick=async()=>{
   }catch(error){$('connectionNote').textContent=error.message;}
 };
 setInterval(refresh,5000);
-if($('token').value){connected=true;refresh();}
+if($('token').value){$('connect').click();}
 </script></body></html>

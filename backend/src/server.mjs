@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { calibrateFuel } from "./calibrator.mjs";
 import { loadConnection, saveConnection } from "./connection-store.mjs";
 import { createAuthorizationUrl, exchangeAuthorizationCode, fetchCompleteActivityHistory, refreshAccessToken } from "./garmin-connect.mjs";
+import { parseGarminConnectCsv } from "./garmin-csv.mjs";
 import { loadProfile, saveProfile } from "./profile-store.mjs";
 import { clearLiveSession, coachLive } from "./live-coach.mjs";
 import { loadJson, saveJson } from "./json-store.mjs";
@@ -16,6 +17,7 @@ const token = process.env.COMPANION_TOKEN;
 const pendingAuthorizations = new Map();
 const dashboardPath = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const phonePath = fileURLToPath(new URL("../public/phone.html", import.meta.url));
+const bleRidePath = fileURLToPath(new URL("../public/ble-ride.mjs", import.meta.url));
 const manifestPath = fileURLToPath(new URL("../public/manifest.webmanifest", import.meta.url));
 const iconPath = fileURLToPath(new URL("../public/icon.svg", import.meta.url));
 
@@ -25,19 +27,15 @@ function send(response, status, body) {
 }
 
 function isAuthorized(request) {
-  const paired = token && request.headers.authorization === `Bearer ${token}`;
-  const address = request.socket.remoteAddress;
-  const localDashboard = request.headers["x-companion-local"] === "1" &&
-    (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1");
-  return paired || localDashboard;
+  return Boolean(token && request.headers.authorization === `Bearer ${token}`);
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = 2 * 1024 * 1024) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 2 * 1024 * 1024) throw new Error("Request body is too large");
+    if (size > maxBytes) throw new Error("Request body is too large");
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -67,6 +65,11 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && url.pathname === "/phone") {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
     response.end(await readFile(phonePath));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/ble-ride.mjs") {
+    response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    response.end(await readFile(bleRidePath));
     return;
   }
   if (request.method === "GET" && url.pathname === "/manifest.webmanifest") {
@@ -119,6 +122,23 @@ const server = createServer(async (request, response) => {
       }
       const profile = await learnFromGarmin(String(input.rider_id), connection, Number(input.target_ride_minutes ?? 120), input.ftp_hint_watts ?? null);
       return send(response, 200, profile);
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/garmin/import-csv") {
+      const input = await readJson(request, 10 * 1024 * 1024);
+      if (!input.rider_id) throw new Error("rider_id is required");
+      const { rides, skipped, total } = parseGarminConnectCsv(input.csv);
+      const previousProfile = await loadProfile(String(input.rider_id));
+      const profile = await calibrateFuel({
+        ride_history: rides,
+        target_ride_minutes: Number(input.target_ride_minutes ?? 120),
+        ftp_hint_watts: input.ftp_hint_watts ?? null,
+        previous_profile: previousProfile
+      });
+      const saved = { ...profile, source: "garmin_connect_csv", rides_imported: rides.length, rides_skipped: skipped,
+        activities_in_export: total, imported_at: new Date().toISOString() };
+      await saveProfile(String(input.rider_id), saved);
+      return send(response, 200, saved);
     }
 
     if (request.method === "GET" && url.pathname === "/v1/profile") {
